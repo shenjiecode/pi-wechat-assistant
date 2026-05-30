@@ -400,6 +400,83 @@ export default function wechatAssistant(pi: ExtensionAPI) {
         return true
       }
 
+      case 'compact': {
+        // /compact — 手动压缩上下文
+        if (!latestCtx) return false
+        latestCtx.compact({
+          onComplete: () => {
+            void activeClient.sendText(userId, '✅ 上下文压缩完成')
+          },
+          onError: (error) => {
+            void activeClient.sendText(userId, `❌ 压缩失败: ${error.message}`)
+          },
+        })
+        await activeClient.sendText(userId, '⏳ 正在压缩上下文...')
+        return true
+      }
+
+      case 'stop': {
+        // /stop — 停止当前生成
+        if (!latestCtx) return false
+        if (latestCtx.isIdle()) {
+          await activeClient.sendText(userId, '当前没有在执行任务')
+        } else {
+          latestCtx.abort()
+          await activeClient.sendText(userId, '✅ 已发送停止信号')
+        }
+        return true
+      }
+
+      case 'status': {
+        // /status — 查看 pi 当前状态
+        if (!latestCtx) return false
+        const lines: string[] = []
+        // 模型
+        if (latestCtx.model) {
+          lines.push(`模型: ${latestCtx.model.provider}/${latestCtx.model.id}`)
+        }
+        // thinking
+        lines.push(`Thinking: ${pi.getThinkingLevel()}`)
+        // 工具
+        const activeTools = pi.getActiveTools()
+        lines.push(`工具: ${activeTools.join(', ')}`)
+        // 上下文使用量
+        const usage = latestCtx.getContextUsage()
+        if (usage && usage.tokens != null) {
+          const pct = usage.percent != null ? ` (${usage.percent}%)` : ''
+          lines.push(`上下文: ${usage.tokens.toLocaleString()} / ${usage.contextWindow.toLocaleString()} tokens${pct}`)
+        }
+        // 队列
+        lines.push(`排队消息: ${queue.length}`)
+        // 会话文件
+        const sf = latestCtx.sessionManager.getSessionFile()
+        if (sf) lines.push(`会话: ${sf}`)
+        await activeClient.sendText(userId, lines.join('\n'))
+        return true
+      }
+
+      case 'help': {
+        const help = [
+          '📋 微信远程命令:',
+          '',
+          '/model              列出可用模型',
+          '/model <名称>       切换模型',
+          '/thinking           查看 thinking level',
+          '/thinking <level>   设置 thinking level',
+          '/tools              列出工具状态',
+          '/tools <名称>       设置活跃工具',
+          '/compact            压缩上下文',
+          '/stop               停止当前生成',
+          '/status             查看 pi 状态',
+          '/help               显示此帮助',
+          '',
+          '直接发文字 = 正常对话',
+          '其他 / 命令 = 当普通消息处理',
+        ]
+        await activeClient.sendText(userId, help.join('\n'))
+        return true
+      }
+
       default:
         return false
     }
