@@ -301,6 +301,110 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     }
   }
 
+  // --- 远程命令处理 ---
+
+  async function handleRemoteCommand(
+    text: string,
+    userId: string,
+    activeClient: WeixinClient,
+  ): Promise<boolean> {
+    const trimmed = text.trim()
+    if (!trimmed.startsWith('/')) return false
+
+    const [cmd, ...rest] = trimmed.slice(1).split(/\s+/)
+    const args = rest.join(' ')
+
+    switch (cmd) {
+      case 'model': {
+        // /model — 列出或切换模型
+        if (!latestCtx) return false
+        const registry = latestCtx.modelRegistry
+        if (!args) {
+          // 列出可用模型
+          const models = registry.getAvailable()
+          const current = latestCtx.model ? `${latestCtx.model.provider}/${latestCtx.model.id}` : 'unknown'
+          const lines = [`当前模型: ${current}`, '', '可用模型:']
+          const seen = new Set<string>()
+          for (const m of models) {
+            const key = `${m.provider}/${m.id}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            lines.push(`  ${key}${key === current ? ' ←' : ''}`)
+          }
+          await activeClient.sendText(userId, lines.join('\n'))
+        } else {
+          // 切换模型: /model provider/id 或 /model id
+          let model
+          if (args.includes('/')) {
+            const [provider, ...idParts] = args.split('/')
+            model = registry.find(provider, idParts.join('/'))
+          } else {
+            // 模糊匹配：遍历所有 provider 找第一个匹配的
+            for (const m of registry.getAvailable()) {
+              if (m.id === args || m.id.includes(args)) { model = m; break }
+            }
+          }
+          if (model) {
+            const success = await pi.setModel(model)
+            if (success) {
+              await activeClient.sendText(userId, `✅ 已切换模型: ${model.provider}/${model.id}`)
+            } else {
+              await activeClient.sendText(userId, `❌ 切换失败: ${model.provider}/${model.id} 没有可用的 API key`)
+            }
+          } else {
+            await activeClient.sendText(userId, `❌ 未找到模型: ${args}\n输入 /model 查看可用列表`)
+          }
+        }
+        return true
+      }
+
+      case 'thinking': {
+        // /thinking — 查看/设置 thinking level
+        if (!args) {
+          const current = pi.getThinkingLevel()
+          await activeClient.sendText(userId, `当前 thinking level: ${current}\n可选: off, minimal, low, medium, high, xhigh`)
+        } else {
+          const valid = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
+          if (valid.includes(args)) {
+            pi.setThinkingLevel(args as any)
+            await activeClient.sendText(userId, `✅ thinking level 已设为: ${args}`)
+          } else {
+            await activeClient.sendText(userId, `❌ 无效 level: ${args}\n可选: ${valid.join(', ')}`)
+          }
+        }
+        return true
+      }
+
+      case 'tools': {
+        // /tools — 查看/设置活跃工具
+        if (!args) {
+          const active = pi.getActiveTools()
+          const all = pi.getAllTools().map(t => t.name)
+          const lines = ['活跃工具:', ...active.map(t => `  ✅ ${t}`), '', '全部工具:']
+          for (const t of all) {
+            lines.push(`  ${active.includes(t) ? '✅' : '⬜'} ${t}`)
+          }
+          await activeClient.sendText(userId, lines.join('\n'))
+        } else {
+          const toolNames = args.split(/[,\s]+/).filter(Boolean)
+          const allNames = pi.getAllTools().map(t => t.name)
+          const valid = toolNames.filter(t => allNames.includes(t))
+          const invalid = toolNames.filter(t => !allNames.includes(t))
+          if (invalid.length > 0) {
+            await activeClient.sendText(userId, `❌ 未知工具: ${invalid.join(', ')}\n输入 /tools 查看全部`)
+          } else {
+            pi.setActiveTools(valid)
+            await activeClient.sendText(userId, `✅ 活跃工具已设为: ${valid.join(', ')}`)
+          }
+        }
+        return true
+      }
+
+      default:
+        return false
+    }
+  }
+
   // --- 单条消息处理 ---
 
   async function handleIncomingMessage(message: IncomingMessage, activeClient: WeixinClient): Promise<void> {
@@ -314,6 +418,14 @@ export default function wechatAssistant(pi: ExtensionAPI) {
         log(`回复不支持类型消息失败: ${formatError(err)}`)
       }
       return
+    }
+
+    // 远程命令拦截
+    if (message.text.startsWith('/')) {
+      activeClient.rememberContext(message.raw)
+      const handled = await handleRemoteCommand(message.text, message.userId, activeClient)
+      if (handled) return
+      // 未识别的 / 命令 → 当普通消息处理
     }
 
     // 支持的消息 → 发送回执 → 入队
