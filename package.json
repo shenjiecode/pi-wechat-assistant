@@ -1,6 +1,6 @@
 {
   "name": "pi-wechat-assistant",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "微信作为 pi TUI 的移动端分身 — 通过微信远程与 pi 交互",
   "main": "index.ts",
