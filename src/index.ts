@@ -251,16 +251,22 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   async function syncReplyToWechat(
     messages: Array<{ role?: string; content?: unknown }>,
   ): Promise<void> {
+    log(`syncReplyToWechat called — client=${!!client}, lastUser=${JSON.stringify(lastWechatUser)}`)
+
     if (!client || !lastWechatUser) return
 
     const reply = extractFinalAssistantText(messages)
+    log(`syncReplyToWechat extracted reply: ${reply ? reply.slice(0, 80) + '...' : 'null'}`)
+
     if (!reply) return
 
     try {
       const chunks = splitAndFilterMarkdown(reply)
+      log(`syncReplyToWechat sending ${chunks.length} chunk(s) to ${lastWechatUser.userId}`)
       for (const chunk of chunks) {
         await client.sendText(lastWechatUser.userId, chunk)
       }
+      log('syncReplyToWechat done')
     } catch (error) {
       log(`同步回复到微信失败: ${formatError(error)}`)
     }
@@ -557,6 +563,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   pi.on('agent_end', async (event, ctx) => {
     latestCtx = ctx
     agentIdle = true
+    log(`agent_end — activeRequest=${!!activeRequest}, running=${running}, client=${!!client}, lastUser=${!!lastWechatUser}`)
 
     if (activeRequest) {
       // 微信发起的请求 → 正常回复
@@ -590,7 +597,16 @@ function extractFinalAssistantText(
 ): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]
-    if (message?.role !== 'assistant' || !Array.isArray(message.content)) continue
+    if (message?.role !== 'assistant') continue
+
+    // 兼容 string 和 Array 两种 content 格式
+    if (typeof message.content === 'string') {
+      const text = message.content.trim()
+      if (text) return text
+      continue
+    }
+
+    if (!Array.isArray(message.content)) continue
 
     const text = message.content
       .filter(
