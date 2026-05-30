@@ -1,0 +1,52 @@
+{
+  "name": "pi-wechat-assistant",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "微信作为 pi TUI 的移动端分身 — 通过微信远程与 pi 交互",
+  "main": "src/index.ts",
+  "license": "MIT",
+  "author": "sj",
+  "homepage": "https://github.com/sj-over9000/pi-wechat-assistant#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sj-over9000/pi-wechat-assistant.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sj-over9000/pi-wechat-assistant/issues"
+  },
+  "keywords": [
+    "pi",
+    "pi-package",
+    "pi-extension",
+    "wechat",
+    "微信",
+    "ilink",
+    "bot",
+    "assistant",
+    "agent"
+  ],
+  "files": [
+    "src/",
+    "LICENSE",
+    "README.md",
+    "tsconfig.json"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@types/node": "^22.10.5",
+    "@types/qrcode-terminal": "^0.12.2",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "qrcode-terminal": "^0.12.0"
+  }
+}
