@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "微信作为 pi TUI 的移动端分身 — 通过微信远程与 pi 交互",
-  "main": "src/index.ts",
+  "main": "index.ts",
   "license": "MIT",
   "author": "sj",
   "homepage": "https://github.com/shenjiecode/pi-wechat-assistant#readme",
@@ -21,11 +21,13 @@
     "wechat",
     "微信",
     "ilink",
+    "ilink",
     "bot",
     "assistant",
     "agent"
   ],
   "files": [
+    "index.ts",
     "src/",
     "LICENSE",
     "README.md",
@@ -33,7 +35,7 @@
   ],
   "pi": {
     "extensions": [
-      "./src/index.ts"
+      "./index.ts"
     ]
   },
   "peerDependencies": {
