@@ -61,7 +61,7 @@
     "@mariozechner/pi-coding-agent": "*",
     "@types/node": "^22.10.5",
     "@types/qrcode-terminal": "^0.12.2",
-    "typescript": "^5.0.0"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "qrcode-terminal": "^0.12.0"
