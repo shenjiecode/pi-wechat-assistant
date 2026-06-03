@@ -3,5 +3,6 @@ dist/
 *.js
 *.d.ts
 *.d.ts.map
+*.tgz
 !src/
 .DS_Store

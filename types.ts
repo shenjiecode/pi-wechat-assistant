@@ -43,8 +43,15 @@ export interface TextItem {
   text: string
 }
 
+export interface ImageMedia {
+  encrypt_query_param?: string
+  aes_key?: string  // base64 编码的密钥
+  full_url?: string  // 下载地址
+}
+
 export interface ImageItem {
-  url?: string
+  aeskey?: string  // 十六进制密钥 (32字符)
+  media?: ImageMedia
 }
 
 export interface VoiceItem {
@@ -136,6 +143,8 @@ export interface IncomingMessage {
   userId: string
   text: string
   type: IncomingMessageType
+  imageUrl?: string  // 图片消息的 URL
+  imageAesKey?: string  // 图片解密密钥
   raw: WeixinMessage
   contextToken: string
   timestamp: Date

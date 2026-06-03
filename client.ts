@@ -2,9 +2,9 @@
 // WeixinClient — 封装微信 iLink Bot 消息收发
 // ============================================================================
 
-import { randomUUID } from 'node:crypto'
-import { ApiError, getUpdates as apiGetUpdates, getConfig, sendMessage as apiSendMessage, sendTyping as apiSendTyping, isSessionExpired } from './api.js'
-import type { Credentials, IncomingMessage, MessageItem } from './types.js'
+import { getUpdates as apiGetUpdates, getConfig, sendMessage as apiSendMessage, sendTyping as apiSendTyping, isSessionExpired } from './api.js'
+import { debugLog } from './logger.js'
+import type { Credentials, IncomingMessage, MessageItem, WeixinMessage } from './types.js'
 
 export class SessionExpiredError extends Error {
   constructor() {
@@ -100,15 +100,18 @@ export class WeixinClient {
   private normalizeIncomingMessage(raw: { message_type?: number; message_id?: string | number; from_user_id?: string; create_time_ms?: number; context_token?: string; item_list?: MessageItem[] }): IncomingMessage | null {
     if (raw.message_type !== 1) return null // 只处理用户消息
 
+    debugLog(`normalizeIncomingMessage: item_list=${JSON.stringify(raw.item_list)?.slice(0, 500)}`)
     const items = raw.item_list ?? []
-    const { type, text } = extractContent(items)
+    const { type, text, imageUrl, imageAesKey } = extractContent(items)
 
     return {
       messageId: String(raw.message_id ?? ''),
       userId: raw.from_user_id ?? '',
       text,
       type,
-      raw: raw as any,
+      imageUrl,
+      imageAesKey,
+      raw: raw as WeixinMessage,
       contextToken: raw.context_token ?? '',
       timestamp: new Date(raw.create_time_ms ?? Date.now()),
     }
@@ -131,12 +134,12 @@ export class WeixinClient {
 
 // --- 消息内容提取 ---
 
-function extractContent(items: MessageItem[]): { type: IncomingMessage['type']; text: string } {
-  let hasImage = false
+function extractContent(items: MessageItem[]): { type: IncomingMessage['type']; text: string; imageUrl?: string; imageAesKey?: string } {
   let hasVideo = false
   let hasFile = false
 
   for (const item of items) {
+    debugLog(`extractContent: item.type=${item.type}`)
     switch (item.type) {
       case 1: { // 文本
         let text = item.text_item?.text?.trim() ?? ''
@@ -149,8 +152,13 @@ function extractContent(items: MessageItem[]): { type: IncomingMessage['type']; 
         break
       }
       case 2: { // 图片
-        hasImage = true
-        break
+        debugLog(`extractContent: image_item=${JSON.stringify(item.image_item)}`)
+        const imageUrl = item.image_item?.media?.full_url
+        const aesKey = item.image_item?.aeskey
+        if (imageUrl) {
+          return { type: 'image', text: '', imageUrl, imageAesKey: aesKey }
+        }
+        return { type: 'image', text: '' }
       }
       case 3: { // 语音
         const voiceText = item.voice_item?.text?.trim()
@@ -168,7 +176,6 @@ function extractContent(items: MessageItem[]): { type: IncomingMessage['type']; 
     }
   }
 
-  if (hasImage) return { type: 'image', text: '' }
   if (hasFile) return { type: 'file', text: '' }
   if (hasVideo) return { type: 'video', text: '' }
   return { type: 'unknown', text: '' }

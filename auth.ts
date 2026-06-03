@@ -54,6 +54,10 @@ export function clearCredentials(): void {
 
 export interface BridgeConfig {
   autoStart?: boolean
+  /** 图片批量合并等待时间；收到文字补充会立即处理 */
+  imageBatchWaitMs?: number
+  /** 单张图片最大下载大小，单位字节 */
+  imageMaxBytes?: number
 }
 
 export function loadConfig(): BridgeConfig {

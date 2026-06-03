@@ -21,11 +21,18 @@
     "wechat",
     "微信",
     "ilink",
-    "ilink",
     "bot",
     "assistant",
     "agent"
   ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "prepack": "npm run typecheck"
+  },
+  "engines": {
+    "node": ">=20.3.0"
+  },
   "files": [
     "*.ts",
     "LICENSE",
@@ -41,8 +48,17 @@
     "@earendil-works/pi-coding-agent": "*",
     "@mariozechner/pi-coding-agent": "*"
   },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@mariozechner/pi-coding-agent": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "*",
+    "@mariozechner/pi-coding-agent": "*",
     "@types/node": "^22.10.5",
     "@types/qrcode-terminal": "^0.12.2",
     "typescript": "^5.0.0"
