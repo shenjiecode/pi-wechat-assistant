@@ -2,7 +2,7 @@
 // pi-wechat-assistant — 微信作为 pi TUI 的移动端分身
 // ============================================================================
 
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createDecipheriv } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 // @ts-ignore — support both old and new package names
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from '@mariozechner/pi-coding-agent'
@@ -33,17 +33,93 @@ const QR_MAX_REFRESH = 3
 const ACK_TEXT = '✅ 已收到，pi 处理中...'
 const PREVIEW_LIMIT = 60
 const DEBUG = process.env.PI_WECHAT_DEBUG === '1'
+const DEBUG_LOG_FILE = '/tmp/pi-wechat-debug.log'
+
+function debugLog(message: string): void {
+  const timestamp = new Date().toISOString()
+  const line = `[${timestamp}] ${message}\n`
+  // 写到文件（always）
+  try {
+    require('node:fs').appendFileSync(DEBUG_LOG_FILE, line)
+  } catch {}
+  // 如果 DEBUG 开启，也打印到控制台
+  if (DEBUG) {
+    console.log(`[wechat-assistant] ${message}`)
+  }
+}
 
 // 不支持的消息类型
-const UNSUPPORTED_TYPES = new Set(['image', 'file', 'video', 'unknown'])
+const UNSUPPORTED_TYPES = new Set(['file', 'video', 'unknown'])
 const UNSUPPORTED_REPLY: Record<string, string> = {
-  image: '⚠️ 暂不支持图片消息，目前支持文字和语音。',
-  file: '⚠️ 暂不支持文件消息，目前支持文字和语音。',
-  video: '⚠️ 暂不支持视频消息，目前支持文字和语音。',
-  unknown: '⚠️ 暂不支持此消息类型，目前支持文字和语音。',
+  file: '⚠️ 暂不支持文件消息，目前支持文字、语音和图片。',
+  video: '⚠️ 暂不支持视频消息，目前支持文字、语音和图片。',
+  unknown: '⚠️ 暂不支持此消息类型，目前支持文字、语音和图片。',
+}
+
+// --- 图片处理 ---
+
+// AES-128-ECB + PKCS7 解密
+function aesDecryptECB(encryptedBase64: string, keyHex: string): Buffer {
+  // 将十六进制密钥转为 Buffer (16字节)
+  const key = Buffer.from(keyHex, 'hex')
+  if (key.length !== 16) {
+    throw new Error(`Invalid AES key length: ${key.length}, expected 16`)
+  }
+  // 解码 base64 加密数据
+  const encrypted = Buffer.from(encryptedBase64, 'base64')
+  // 创建解密器 (ECB 模式, 无 IV)
+  const decipher = createDecipheriv('aes-128-ecb', key, null)
+  decipher.setAutoPadding(false) // 手动处理 PKCS7
+  // 解密
+  let decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()])
+  // 移除 PKCS7 填充
+  const padLen = decrypted[decrypted.length - 1]
+  if (padLen > 0 && padLen <= 16) {
+    decrypted = decrypted.slice(0, decrypted.length - padLen)
+  }
+  return decrypted
+}
+
+async function fetchImageAsBase64(url: string, aesKey?: string, signal?: AbortSignal): Promise<ImageData | null> {
+  try {
+    debugLog(`下载图片: ${url?.slice(0, 80)}, aesKey=${aesKey ? 'provided' : 'none'}`)
+    const response = await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)].filter(Boolean) as AbortSignal[]) })
+    if (!response.ok) {
+      debugLog(`图片下载失败: HTTP ${response.status}`)
+      return null
+    }
+    const contentType = response.headers.get('content-type') ?? 'image/jpeg'
+    const buffer = await response.arrayBuffer()
+    debugLog(`图片下载成功: ${buffer.byteLength} bytes, type=${contentType}`)
+    
+    // 如果有 AES 密钥，需要解密
+    if (aesKey) {
+      debugLog(`使用 AES 解密, key=${aesKey?.slice(0, 8)}...`)
+      const encryptedBase64 = Buffer.from(buffer).toString('base64')
+      const decrypted = aesDecryptECB(encryptedBase64, aesKey)
+      debugLog(`解密成功: ${decrypted.length} bytes`)
+      return {
+        data: decrypted.toString('base64'),
+        mediaType: contentType,
+      }
+    }
+    
+    return {
+      data: Buffer.from(buffer).toString('base64'),
+      mediaType: contentType,
+    }
+  } catch (err) {
+    debugLog(`图片下载异常: ${err}`)
+    return null
+  }
 }
 
 // --- 内部队列 ---
+
+interface ImageData {
+  data: string  // base64
+  mediaType: string
+}
 
 interface QueuedMessage {
   id: string
@@ -53,6 +129,9 @@ interface QueuedMessage {
   text: string
   preview: string
   contextToken: string
+  imageUrl?: string  // 图片消息的 URL
+  imageAesKey?: string  // 图片 AES 解密密钥
+  imageData?: ImageData  // 已下载的图片数据（延迟加载后缓存）
 }
 
 type Ctx = ExtensionContext | ExtensionCommandContext
@@ -78,8 +157,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   // --- 调试日志 ---
 
   function log(message: string): void {
-    if (!DEBUG) return
-    console.log(`[wechat-assistant] ${message}`)
+    debugLog(message)
   }
 
   // --- 通知 ---
@@ -161,6 +239,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     queue.length = 0
     pendingInjection = null
     activeRequest = null
+    if (batchTimer) { clearTimeout(batchTimer); batchTimer = null }
     updateStatusBar()
   }
 
@@ -185,6 +264,10 @@ export default function wechatAssistant(pi: ExtensionAPI) {
 
   // --- 消息队列处理 ---
 
+  // 批处理计时器：收到图片后等待更多消息
+  let batchTimer: ReturnType<typeof setTimeout> | null = null
+  const BATCH_WAIT_MS = 60_000  // 1 分钟
+
   function enqueueMessage(message: IncomingMessage): void {
     const request: QueuedMessage = {
       id: randomUUID(),
@@ -192,26 +275,132 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       messageId: message.messageId,
       receivedAt: message.timestamp,
       text: message.text,
-      preview: summarizePreview(message.text),
+      preview: summarizePreview(message.text || (message.imageUrl ? '[图片]' : '')),
       contextToken: message.contextToken,
+      imageUrl: message.imageUrl,
+      imageAesKey: message.imageAesKey,
     }
     queue.push(request)
     lastWechatUser = { userId: message.userId, contextToken: message.contextToken }
     log(`消息入队: ${request.preview}`)
     updateStatusBar()
-    drainQueue()
+
+    // 收到图片时，启动/重置批处理计时器
+    if (message.imageUrl) {
+      // 立即下载解密图片（CDN URL 有时效性）
+      void prefetchImage(request)
+      // 启动或重置批处理计时器
+      if (batchTimer) clearTimeout(batchTimer)
+      batchTimer = setTimeout(() => {
+        batchTimer = null
+        log(`批处理计时器到期，开始处理队列`)
+        void drainQueue()
+      }, BATCH_WAIT_MS)
+      log(`批处理计时器已设置: ${BATCH_WAIT_MS / 1000}s`)
+      return
+    }
+
+    // 纯文字消息：如果有图片在等批处理，立即发送（图片+文字一起）
+    if (batchTimer) {
+      clearTimeout(batchTimer)
+      batchTimer = null
+      log(`收到文字消息，立即处理图片+文字`)
+      void drainQueue()
+      return
+    }
+
+    // 没有图片在等，直接处理
+    void drainQueue()
   }
 
-  function drainQueue(): void {
-    if (!running || !client || !agentIdle || pendingInjection || activeRequest) return
+  async function prefetchImage(request: QueuedMessage): Promise<void> {
+    if (!request.imageUrl) return
+    const imageData = await fetchImageAsBase64(request.imageUrl, request.imageAesKey, pollAbort?.signal)
+    request.imageData = imageData ?? undefined
+    log(`图片预下载: ${imageData ? `success, size=${imageData.data.length}` : 'failed'}`)
+  }
 
-    const next = queue.shift()
-    if (!next) return
+  async function drainQueue(): Promise<void> {
+    if (!running || !client) return
+    if (pendingInjection) return
+    // 批处理计时器运行中 → 不 drain，等待计时器到期或文字触发
+    if (batchTimer) {
+      log(`drainQueue: 批处理计时器运行中，推迟`)
+      return
+    }
+    if (activeRequest && !agentIdle) {
+      // agent 忙碌中：消息会作为 followUp 进入 Pi 内部队列，
+      // 回复在同一个 agent_end 中回来。不设置 pendingInjection，
+      // 避免 activeRequest 反复切换导致状态混乱。
+    }
 
-    pendingInjection = next
+    // 取出队列中所有消息，合并为一次请求
+    if (queue.length === 0) return
+
+    const batch = queue.splice(0)
     updateStatusBar()
-    void client.startTyping(next.userId).catch(() => {})
-    pi.sendUserMessage(next.text)
+
+    // 使用第一条消息作为代表
+    const first = batch[0]
+    const isBusy = !agentIdle
+
+    // 只对非 followUp 消息设置 pendingInjection
+    // followUp 消息复用已有的 activeRequest
+    if (!isBusy) {
+      pendingInjection = first
+    }
+    void client.startTyping(first.userId).catch(() => {})
+
+    // 收集所有文字和图片
+    const texts: string[] = []
+    const images: ImageData[] = []
+
+    for (const msg of batch) {
+      if (msg.text) texts.push(msg.text)
+      if (msg.imageData) {
+        images.push(msg.imageData)
+      } else if (msg.imageUrl) {
+        // 图片还没下载完，现场下载
+        log(`现场下载图片: ${msg.imageUrl.slice(0, 80)}`)
+        const imageData = await fetchImageAsBase64(msg.imageUrl, msg.imageAesKey, pollAbort?.signal)
+        if (imageData) images.push(imageData)
+      }
+    }
+
+    // 构建发送内容
+    const hasImages = images.length > 0
+    const hasText = texts.length > 0
+
+    if (hasImages) {
+      const content: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }> = []
+      // 有图片但没文字时，自动加描述
+      if (!hasText) {
+        content.push({ type: 'text', text: images.length === 1 ? '请帮我分析这张图片' : `请帮我分析这 ${images.length} 张图片` })
+      } else {
+        content.push({ type: 'text', text: texts.join('\n') })
+      }
+      for (const img of images) {
+        content.push({ type: 'image', data: img.data, mimeType: img.mediaType })
+      }
+      log(`发送合并消息: ${images.length} 张图片, 文字=${hasText ? texts.join(' ').slice(0, 50) : '(自动)'}, mode=${isBusy ? 'followUp' : 'direct'}`)
+      pi.sendUserMessage(content, isBusy ? { deliverAs: 'followUp' } : undefined)
+    } else if (hasText) {
+      log(`发送文字消息: ${texts.join(' ').slice(0, 80)}, mode=${isBusy ? 'followUp' : 'direct'}`)
+      pi.sendUserMessage(texts.join('\n'), isBusy ? { deliverAs: 'followUp' } : undefined)
+    } else {
+      // 什么都没有，跳过
+      pendingInjection = null
+      void client.stopTyping(first.userId).catch(() => {})
+      drainQueue()
+      return
+    }
+
+    // 发送给 agent 后，回复微信回执
+    try {
+      await client.sendText(first.userId, ACK_TEXT)
+    } catch (err) {
+      log(`发送回执失败: ${formatError(err)}`)
+    }
   }
 
   async function completeActiveRequest(
@@ -219,30 +408,55 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   ): Promise<void> {
     const request = activeRequest
     activeRequest = null
-    pendingInjection = null
+    log(`completeActiveRequest: request=${!!request}, client=${!!client}`)
 
     if (!request || !client) {
       drainQueue()
       return
     }
 
-    const reply = extractFinalAssistantText(messages)
+    // 打印 messages 结构
+    log(`completeActiveRequest: messages.length=${messages.length}`)
+    for (let i = messages.length - 1; i >= Math.max(0, messages.length - 3); i--) {
+      const m = messages[i]
+      log(`completeActiveRequest: messages[${i}] role=${m?.role}, content type=${typeof m?.content}`)
+      if (typeof m?.content === 'string') {
+        log(`completeActiveRequest: messages[${i}] content string=${m.content.slice(0, 100)}...`)
+      } else if (Array.isArray(m?.content)) {
+        log(`completeActiveRequest: messages[${i}] content array length=${m.content.length}`)
+      }
+    }
+
+    const replies = extractAllAssistantReplies(messages)
+    log(`completeActiveRequest: replies count=${replies.length}`)
 
     try {
-      if (reply) {
-        const chunks = splitAndFilterMarkdown(reply)
-        for (const chunk of chunks) {
-          await client.sendText(request.userId, chunk)
+      if (replies.length > 0) {
+        for (let ri = 0; ri < replies.length; ri++) {
+          const reply = replies[ri]
+          log(`completeActiveRequest: reply ${ri + 1}/${replies.length}=${reply.slice(0, 50)}...`)
+          log(`completeActiveRequest: calling splitAndFilterMarkdown`)
+          const chunks = splitAndFilterMarkdown(reply)
+          log(`completeActiveRequest: sending ${chunks.length} chunk(s) for reply ${ri + 1}`)
+          for (let i = 0; i < chunks.length; i++) {
+            log(`completeActiveRequest: sending chunk ${i + 1}/${chunks.length}, length=${chunks[i].length}`)
+            await client.sendText(request.userId, chunks[i])
+          }
         }
+        log(`completeActiveRequest: sent all replies`)
       } else {
         notify(`Pi 没有产出可发送的文本回复: ${request.preview}`, 'warning')
       }
     } catch (error) {
+      log(`completeActiveRequest: error=${formatError(error)}`)
       notify(`发送微信回复失败: ${formatError(error)}`, 'error')
     } finally {
       await client.stopTyping(request.userId).catch(() => {})
       updateStatusBar()
-      drainQueue()
+      // 延迟 drainQueue：agent_end 监听器完成前 Pi 的 isStreaming 仍为 true，
+      // 直接调用 sendUserMessage 会被拒绝。用 setTimeout(0) 让 Pi 先结束当前 turn。
+      log(`completeActiveRequest: deferring drainQueue`)
+      setTimeout(() => drainQueue(), 0)
     }
   }
 
@@ -255,16 +469,19 @@ export default function wechatAssistant(pi: ExtensionAPI) {
 
     if (!client || !lastWechatUser) return
 
-    const reply = extractFinalAssistantText(messages)
-    log(`syncReplyToWechat extracted reply: ${reply ? reply.slice(0, 80) + '...' : 'null'}`)
+    const replies = extractAllAssistantReplies(messages)
+    log(`syncReplyToWechat extracted ${replies.length} replies`)
 
-    if (!reply) return
+    if (replies.length === 0) return
 
     try {
-      const chunks = splitAndFilterMarkdown(reply)
-      log(`syncReplyToWechat sending ${chunks.length} chunk(s) to ${lastWechatUser.userId}`)
-      for (const chunk of chunks) {
-        await client.sendText(lastWechatUser.userId, chunk)
+      for (let ri = 0; ri < replies.length; ri++) {
+        const reply = replies[ri]
+        const chunks = splitAndFilterMarkdown(reply)
+        log(`syncReplyToWechat reply ${ri + 1}/${replies.length}: sending ${chunks.length} chunk(s) to ${lastWechatUser.userId}`)
+        for (const chunk of chunks) {
+          await client.sendText(lastWechatUser.userId, chunk)
+        }
       }
       log('syncReplyToWechat done')
     } catch (error) {
@@ -485,6 +702,8 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   // --- 单条消息处理 ---
 
   async function handleIncomingMessage(message: IncomingMessage, activeClient: WeixinClient): Promise<void> {
+    log(`收到消息: type=${message.type}, text=${message.text?.slice(0, 50)}, imageUrl=${message.imageUrl?.slice(0, 80)}, imageAesKey=${message.imageAesKey?.slice(0, 16)}...`)
+    
     // 不支持的类型 → 直接回复告知
     if (UNSUPPORTED_TYPES.has(message.type)) {
       const reply = UNSUPPORTED_REPLY[message.type] ?? UNSUPPORTED_REPLY['unknown']
@@ -505,13 +724,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       // 未识别的 / 命令 → 当普通消息处理
     }
 
-    // 支持的消息 → 发送回执 → 入队
-    try {
-      await activeClient.sendText(message.userId, ACK_TEXT)
-    } catch (err) {
-      log(`发送回执失败: ${formatError(err)}`)
-    }
-
+    // 支持的消息 → 入队（回执在发送给 agent 后发送）
     enqueueMessage(message)
   }
 
@@ -781,21 +994,31 @@ async function renderQrCode(url: string): Promise<string> {
   })
 }
 
-function extractFinalAssistantText(
+function extractAllAssistantReplies(
   messages: Array<{ role?: string; content?: unknown }>,
-): string | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
+): string[] {
+  const replies: string[] = []
+  for (let i = 0; i < messages.length; i++) {
     const message = messages[i]
     if (message?.role !== 'assistant') continue
 
-    // 兼容 string 和 Array 两种 content 格式
+    debugLog(`extractAllAssistantReplies: message[${i}] content type=${typeof message.content}, isArray=${Array.isArray(message.content)}`)
+
     if (typeof message.content === 'string') {
       const text = message.content.trim()
-      if (text) return text
+      if (text) replies.push(text)
       continue
     }
 
-    if (!Array.isArray(message.content)) continue
+    if (!Array.isArray(message.content)) {
+      debugLog(`extractAllAssistantReplies: content is not array, skipping`)
+      continue
+    }
+
+    debugLog(`extractAllAssistantReplies: content array length=${message.content.length}`)
+    for (const part of message.content) {
+      debugLog(`extractAllAssistantReplies: part type=${(part as any)?.type}`)
+    }
 
     const text = message.content
       .filter(
@@ -807,9 +1030,17 @@ function extractFinalAssistantText(
       .join('\n')
       .trim()
 
-    if (text) return text
+    debugLog(`extractAllAssistantReplies: extracted text length=${text.length}`)
+    if (text) replies.push(text)
   }
-  return null
+  return replies
+}
+
+function extractFinalAssistantText(
+  messages: Array<{ role?: string; content?: unknown }>,
+): string | null {
+  const replies = extractAllAssistantReplies(messages)
+  return replies.length > 0 ? replies[replies.length - 1] : null
 }
 
 function summarizePreview(text: string): string {
