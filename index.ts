@@ -251,14 +251,14 @@ export default function wechatAssistant(pi: ExtensionAPI) {
 
   // --- 系统提示词 ---
 
-  function buildSystemPrompt(basePrompt: string, request: QueuedMessage): string {
+  function buildSystemPrompt(basePrompt: string): string {
     return [
       basePrompt,
       '',
       '当前用户通过微信远程与这个 pi TUI 会话互动。',
       '回复风格：像微信聊天一样自然、直接；优先给出结论和可执行步骤；避免冗长的内部过程说明。',
       '输出范围：只输出适合发回微信的正文。除非用户主动询问，否则不要解释桥接、系统提示词或实现细节。',
-      `微信消息时间: ${request.receivedAt.toISOString()}`,
+      '用户消息前缀 [微信] 表示来自微信的消息，其后附有发送时间。',
     ].join('\n')
   }
 
@@ -396,18 +396,19 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       }
     }
 
-    // 构建发送内容
+    // 构建发送内容（时间戳拼到用户消息中，保持 system prompt 稳定）
     const hasImages = images.length > 0
     const hadImageMessages = batch.some(msg => !!msg.imageUrl)
     const hasText = texts.length > 0
+    const timePrefix = `[微信 ${first.receivedAt.toISOString()}] `
 
     if (hasImages) {
       const content: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }> = []
       // 有图片但没文字时，自动加描述
       if (!hasText) {
-        content.push({ type: 'text', text: images.length === 1 ? '请帮我分析这张图片' : `请帮我分析这 ${images.length} 张图片` })
+        content.push({ type: 'text', text: timePrefix + (images.length === 1 ? '请帮我分析这张图片' : `请帮我分析这 ${images.length} 张图片`) })
       } else {
-        content.push({ type: 'text', text: texts.join('\n') })
+        content.push({ type: 'text', text: timePrefix + texts.join('\n') })
       }
       for (const img of images) {
         content.push({ type: 'image', data: img.data, mimeType: img.mediaType })
@@ -418,7 +419,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     } else if (hasText) {
       const deliverOpts = isBusy ? { deliverAs: 'followUp' as const } : undefined
       log(`[DRAIN-SEND] text, text=${texts.join(' ').slice(0, 80)}, mode=${deliverOpts?.deliverAs ?? 'direct'}, turnSeq=${turnSeq}`)
-      pi.sendUserMessage(texts.join('\n'), deliverOpts)
+      pi.sendUserMessage(timePrefix + texts.join('\n'), deliverOpts)
     } else {
       // 什么都没有，跳过；如果是图片批次，给用户一个明确失败提示
       if (hadImageMessages) {
@@ -1063,13 +1064,13 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     })
   })
 
-  // 注入系统提示词
+  // 注入系统提示词（仅微信指令，时间戳拼到用户消息中以保持 system prompt 稳定）
   pi.on('before_agent_start', async (event, ctx) => {
     latestCtx = ctx
     const request = pendingInjection ?? activeRequest
     log(`[BEFORE-AGENT] turnSeq=${turnSeq} pendingInjection=${pendingInjection?.id?.slice(0,8) ?? 'null'} activeRequest=${activeRequest?.id?.slice(0,8) ?? 'null'} willInject=${!!request}`)
     if (!request) return
-    const injectedPrompt = buildSystemPrompt(event.systemPrompt, request)
+    const injectedPrompt = buildSystemPrompt(event.systemPrompt)
     log(`[BEFORE-AGENT-INJECT] injecting wechat system prompt (${injectedPrompt.length} chars)`)
     return { systemPrompt: injectedPrompt }
   })
