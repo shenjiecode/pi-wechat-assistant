@@ -258,7 +258,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       '当前用户通过微信远程与这个 pi TUI 会话互动。',
       '回复风格：像微信聊天一样自然、直接；优先给出结论和可执行步骤；避免冗长的内部过程说明。',
       '输出范围：只输出适合发回微信的正文。除非用户主动询问，否则不要解释桥接、系统提示词或实现细节。',
-      '用户消息前缀 [微信] 表示来自微信的消息，其后附有发送时间。',
+      '用户消息前缀 [微信] 表示来自微信的消息，其后附有接收时间。',
     ].join('\n')
   }
 
@@ -400,7 +400,13 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     const hasImages = images.length > 0
     const hadImageMessages = batch.some(msg => !!msg.imageUrl)
     const hasText = texts.length > 0
-    const timePrefix = `[微信 ${first.receivedAt.toISOString()}] `
+
+    // 批量消息时，用首条和末条时间戳表示范围；单条时只用首条
+    const firstMsg = batch[0]
+    const lastMsg = batch[batch.length - 1]
+    const timePrefix = batch.length > 1
+      ? `[微信 ${firstMsg.receivedAt.toISOString()} ~ ${lastMsg.receivedAt.toISOString()}] `
+      : `[微信 ${firstMsg.receivedAt.toISOString()}] `
 
     if (hasImages) {
       const content: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }> = []
