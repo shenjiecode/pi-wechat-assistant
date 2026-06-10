@@ -47,11 +47,18 @@ export interface ImageMedia {
   encrypt_query_param?: string
   aes_key?: string  // base64 编码的密钥
   full_url?: string  // 下载地址
+  encrypt_type?: 0 | 1
 }
 
 export interface ImageItem {
   aeskey?: string  // 十六进制密钥 (32字符)
   media?: ImageMedia
+  url?: string
+  mid_size?: number
+  thumb_size?: number
+  thumb_height?: number
+  thumb_width?: number
+  hd_size?: number
 }
 
 export interface VoiceItem {
@@ -60,6 +67,15 @@ export interface VoiceItem {
 
 export interface FileItem {
   file_name?: string
+  md5?: string
+  len?: string
+  media?: CDNMedia
+}
+
+export interface CDNMedia {
+  encrypt_query_param: string
+  aes_key: string  // base64 编码的 AES 密钥
+  encrypt_type?: 0 | 1
 }
 
 export interface VideoItem {
@@ -134,6 +150,48 @@ export interface GetConfigResp {
   errmsg?: string
 }
 
+// --- CDN 上传 ---
+
+export interface GetUploadUrlReq {
+  filekey: string
+  media_type: number  // 1=IMG, 2=VID, 3=FILE, 4=VOICE
+  to_user_id: string
+  rawsize: number
+  rawfilemd5: string
+  filesize: number
+  no_need_thumb: boolean
+  aeskey: string
+  base_info: BaseInfo
+}
+
+export interface GetUploadUrlResp {
+  ret: number
+  upload_param?: string
+  upload_full_url?: string
+  errcode?: number
+  errmsg?: string
+}
+
+export interface SendMediaMessageReq {
+  msg: {
+    from_user_id: string
+    to_user_id: string
+    client_id: string
+    message_type: number
+    message_state: number
+    context_token: string
+    item_list: MessageItem[]
+  }
+  base_info: BaseInfo
+}
+
+export const UploadMediaType = {
+  IMAGE: 1,
+  VIDEO: 2,
+  FILE: 3,
+  VOICE: 4,
+} as const
+
 // --- 内部消息类型 ---
 
 export type IncomingMessageType = 'text' | 'image' | 'voice' | 'file' | 'video' | 'unknown'
@@ -145,6 +203,9 @@ export interface IncomingMessage {
   type: IncomingMessageType
   imageUrl?: string  // 图片消息的 URL
   imageAesKey?: string  // 图片解密密钥
+  fileEncryptParam?: string  // 文件 CDN 下载参数 (encrypt_query_param)
+  fileAesKey?: string  // 文件 AES 解密密钥 (base64)
+  fileName?: string  // 原始文件名
   raw: WeixinMessage
   contextToken: string
   timestamp: Date

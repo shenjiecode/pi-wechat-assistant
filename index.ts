@@ -3,7 +3,10 @@
 // ============================================================================
 
 import { randomUUID, createDecipheriv } from 'node:crypto'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
+import { Type } from '@sinclair/typebox'
 // @ts-ignore — @earendil-works is the current package, but the older package still carries TS declarations used for compatibility here
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from '@mariozechner/pi-coding-agent'
 import qrcode from 'qrcode-terminal'
@@ -32,12 +35,14 @@ const QR_POLL_INTERVAL_MS = 2_000
 const QR_MAX_REFRESH = 3
 const ACK_TEXT = '✅ 已收到，pi 处理中...'
 const IMAGE_BATCH_ACK_TEXT = '✅ 已收到图片，你可以继续补充文字；稍后我会合并处理。'
+const FILE_BATCH_ACK_TEXT = '✅ 已收到文件，你可以继续补充文字；稍后我会合并处理。'
 const PREVIEW_LIMIT = 60
 const DEFAULT_IMAGE_BATCH_WAIT_MS = 8_000
 const DEFAULT_IMAGE_MAX_BYTES = 50 * 1024 * 1024
+const CDN_BASE_URL = 'https://novac2c.cdn.weixin.qq.com/c2c'
 
 // 不支持的消息类型
-const UNSUPPORTED_TYPES = new Set(['file', 'video', 'unknown'])
+const UNSUPPORTED_TYPES = new Set(['video', 'unknown'])
 const UNSUPPORTED_REPLY: Record<string, string> = {
   file: '⚠️ 暂不支持文件消息，目前支持文字、语音和图片。',
   video: '⚠️ 暂不支持视频消息，目前支持文字、语音和图片。',
@@ -111,6 +116,34 @@ async function fetchImageAsBase64(url: string, aesKey: string | undefined, maxBy
   }
 }
 
+// 文件下载：从 CDN 下载并 AES-128-ECB 解密
+// 文件 aes_key 编码方式与图片不同：base64(utf8(hex_key))
+async function fetchFile(encryptParam: string, aesKey: string | undefined, signal?: AbortSignal): Promise<Buffer | null> {
+  try {
+    const url = `${CDN_BASE_URL}/download?encrypted_query_param=${encodeURIComponent(encryptParam)}`
+    debugLog(`下载文件: ${redactUrl(url)}`)
+    const response = await fetch(url, { signal: withTimeout(signal, 60_000) })
+    if (!response.ok) {
+      debugLog(`文件下载失败: HTTP ${response.status}`)
+      return null
+    }
+    const buffer = Buffer.from(await response.arrayBuffer())
+    debugLog(`文件下载成功: ${buffer.byteLength} bytes`)
+
+    if (aesKey) {
+      // aes_key 是 base64(utf8(hex))，先还原为 hex 再解密
+      const hexKey = Buffer.from(aesKey, 'base64').toString('utf-8')
+      const decrypted = aesDecryptECB(buffer, hexKey)
+      debugLog(`文件解密成功: ${decrypted.length} bytes`)
+      return decrypted
+    }
+    return buffer
+  } catch (err) {
+    debugLog(`文件下载异常: ${err}`)
+    return null
+  }
+}
+
 // --- 内部队列 ---
 
 interface ImageData {
@@ -129,6 +162,10 @@ interface QueuedMessage {
   imageUrl?: string  // 图片消息的 URL
   imageAesKey?: string  // 图片 AES 解密密钥
   imageData?: ImageData  // 已下载的图片数据（延迟加载后缓存）
+  fileEncryptParam?: string  // 文件 CDN 下载参数
+  fileAesKey?: string  // 文件 AES 解密密钥 (base64)
+  fileName?: string  // 原始文件名
+  fileBuffer?: Buffer  // 已下载的文件内容（延迟加载后缓存）
 }
 
 type Ctx = ExtensionContext | ExtensionCommandContext
@@ -143,10 +180,15 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   let agentIdle = true
   let pollAbort: AbortController | null = null
   let latestCtx: Ctx | null = null
+  // 微信接收文件保存目录（位于当前工作目录下）
+  const WECHAT_FILES_SUBDIR = '.pi-wechat-files'
+  let wechatFilesDir: string | null = null
 
   const queue: QueuedMessage[] = []
   let pendingInjection: QueuedMessage | null = null
   let activeRequest: QueuedMessage | null = null
+  // 标记 completeActiveRequest 正在执行中，防止 drainQueue 在此期间启动新 turn
+  let completingRequest = false
 
   // 最后对话的微信用户（用于 TUI 发起对话时同步回复）
   let lastWechatUser: { userId: string; contextToken: string } | null = null
@@ -235,6 +277,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     running = false
     pollAbort?.abort()
     pollAbort = null
+    completingRequest = false
 
     if (activeRequest && client) {
       await client.stopTyping(activeRequest.userId).catch(() => {})
@@ -283,47 +326,71 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   }
 
   function enqueueMessage(message: IncomingMessage): void {
-    log(`[ENQUEUE] type=${message.type} text=${message.text?.slice(0,40)} hasImage=${!!message.imageUrl} queueBefore=${queue.length} agentIdle=${agentIdle} activeRequest=${!!activeRequest} pendingInjection=${!!pendingInjection} batchTimer=${!!batchTimer}`)
+    log(`[ENQUEUE] type=${message.type} text=${message.text?.slice(0,40)} hasImage=${!!message.imageUrl} hasFile=${!!message.fileEncryptParam} queueBefore=${queue.length} agentIdle=${agentIdle} activeRequest=${!!activeRequest} pendingInjection=${!!pendingInjection} batchTimer=${!!batchTimer}`)
     const request: QueuedMessage = {
       id: randomUUID(),
       userId: message.userId,
       messageId: message.messageId,
       receivedAt: message.timestamp,
       text: message.text,
-      preview: summarizePreview(message.text || (message.imageUrl ? '[图片]' : '')),
+      preview: summarizePreview(message.text || (message.imageUrl ? '[图片]' : message.fileEncryptParam ? `[文件: ${message.fileName ?? '未知'}]` : '')),
       contextToken: message.contextToken,
       imageUrl: message.imageUrl,
       imageAesKey: message.imageAesKey,
+      fileEncryptParam: message.fileEncryptParam,
+      fileAesKey: message.fileAesKey,
+      fileName: message.fileName,
     }
     queue.push(request)
     lastWechatUser = { userId: message.userId, contextToken: message.contextToken }
     log(`[ENQUEUE-DONE] id=${request.id} preview=${request.preview} queueAfter=${queue.length}`)
     updateStatusBar()
 
+    // 收到文件时，启动/重置批处理计时器，并对这一批文件只回执一次
+    if (message.fileEncryptParam) {
+      if (!imageBatchAckSent && client) {
+        imageBatchAckSent = true
+        log(`[FILE-ACK] sending batch ack for userId=${message.userId}`)
+        void client.sendText(message.userId, FILE_BATCH_ACK_TEXT).then(() => {
+          log(`[FILE-ACK-DONE]`)
+        }).catch(err => {
+          log(`[FILE-ACK-FAIL] ${formatError(err)}`)
+        })
+      }
+      // 立即下载文件（CDN URL 有时效性）
+      void prefetchFile(request)
+      const waitMs = getImageBatchWaitMs()
+      if (batchTimer) clearTimeout(batchTimer)
+      batchTimer = setTimeout(() => {
+        batchTimer = null
+        log(`文件批处理计时器到期，开始处理队列`)
+        void drainQueue()
+      }, waitMs)
+      log(`文件批处理计时器已设置: ${waitMs / 1000}s`)
+      return
+    }
+
     // 收到图片时，启动/重置批处理计时器，并对这一批图片只回执一次
     if (message.imageUrl) {
       if (!imageBatchAckSent && client) {
         imageBatchAckSent = true
         log(`[IMAGE-ACK] sending batch ack for userId=${message.userId}`)
-        const ackStart = Date.now()
         void client.sendText(message.userId, IMAGE_BATCH_ACK_TEXT).then(() => {
-          log(`[IMAGE-ACK-DONE] sent in ${Date.now() - ackStart}ms`)
+          log(`[IMAGE-ACK-DONE]`)
         }).catch(err => {
-          log(`[IMAGE-ACK-FAIL] ${formatError(err)} after ${Date.now() - ackStart}ms`)
+          log(`[IMAGE-ACK-FAIL] ${formatError(err)}`)
         })
       }
-
       // 立即下载解密图片（CDN URL 有时效性）
       void prefetchImage(request)
-      // 启动或重置批处理计时器
       const waitMs = getImageBatchWaitMs()
       if (batchTimer) clearTimeout(batchTimer)
       batchTimer = setTimeout(() => {
         batchTimer = null
-        log(`批处理计时器到期，开始处理队列`)
+        log(`图片批处理计时器到期，开始处理队列`)
         void drainQueue()
       }, waitMs)
-      log(`批处理计时器已设置: ${waitMs / 1000}s`)
+      log(`图片批处理计时器已设置: ${waitMs / 1000}s`)
       return
     }
 
@@ -348,6 +415,13 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     log(`图片预下载: ${imageData ? `success, size=${imageData.data.length}` : 'failed'}`)
   }
 
+  async function prefetchFile(request: QueuedMessage): Promise<void> {
+    if (!request.fileEncryptParam) return
+    const buffer = await fetchFile(request.fileEncryptParam, request.fileAesKey, pollAbort?.signal)
+    request.fileBuffer = buffer ?? undefined
+    log(`文件预下载: ${buffer ? `success, size=${buffer.length}` : 'failed'} name=${request.fileName}`)
+  }
+
   async function drainQueue(): Promise<void> {
     log(`[DRAIN-ENTER] running=${running} client=${!!client} queue=${queue.length} pendingInjection=${!!pendingInjection} activeRequest=${!!activeRequest} agentIdle=${agentIdle} batchTimer=${!!batchTimer}`)
     if (!running || !client) { log(`[DRAIN-SKIP] not running or no client`); return }
@@ -358,6 +432,10 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     }
     if (activeRequest && !agentIdle) {
       log(`[DRAIN-BUSY] agent 忙碌中，后续消息将以 followUp 方式发送（不设置 pendingInjection）`)
+    }
+    if (completingRequest) {
+      log(`[DRAIN-WAIT] completeActiveRequest 正在发送上一轮回复，推迟 drain`)
+      return
     }
 
     if (queue.length === 0) { log(`[DRAIN-SKIP] queue empty`); return }
@@ -380,9 +458,10 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     }
     void client.startTyping(first.userId).catch(() => {})
 
-    // 收集所有文字和图片
+    // 收集所有文字、图片和文件
     const texts: string[] = []
     const images: ImageData[] = []
+    const files: Array<{ name: string; path: string; size: number }> = []
 
     for (const msg of batch) {
       if (msg.text) texts.push(msg.text)
@@ -394,11 +473,29 @@ export default function wechatAssistant(pi: ExtensionAPI) {
         const imageData = await fetchImageAsBase64(msg.imageUrl, msg.imageAesKey, getImageMaxBytes(), pollAbort?.signal)
         if (imageData) images.push(imageData)
       }
+      if (msg.fileBuffer) {
+        const savedPath = await saveFileToDisk(msg.fileBuffer, msg.fileName ?? 'file')
+        if (savedPath) {
+          files.push({ name: msg.fileName ?? '未知文件', path: savedPath, size: msg.fileBuffer.length })
+        }
+      } else if (msg.fileEncryptParam) {
+        // 文件还没下载完，现场下载
+        log(`现场下载文件: name=${msg.fileName}`)
+        const buffer = await fetchFile(msg.fileEncryptParam, msg.fileAesKey, pollAbort?.signal)
+        if (buffer) {
+          const savedPath = await saveFileToDisk(buffer, msg.fileName ?? 'file')
+          if (savedPath) {
+            files.push({ name: msg.fileName ?? '未知文件', path: savedPath, size: buffer.length })
+          }
+        }
+      }
     }
 
     // 构建发送内容（时间戳拼到用户消息中，保持 system prompt 稳定）
     const hasImages = images.length > 0
     const hadImageMessages = batch.some(msg => !!msg.imageUrl)
+    const hasFiles = files.length > 0
+    const hadFileMessages = batch.some(msg => !!msg.fileEncryptParam)
     const hasText = texts.length > 0
 
     // 批量消息时，用首条和末条时间戳表示范围；单条时只用首条
@@ -408,7 +505,23 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       ? `[微信 ${firstMsg.receivedAt.toISOString()} ~ ${lastMsg.receivedAt.toISOString()}] `
       : `[微信 ${firstMsg.receivedAt.toISOString()}] `
 
-    if (hasImages) {
+    // 有文件时，将文件路径信息拼入文字，agent 可用 read 工具读取
+    if (hasFiles) {
+      const fileInfos = files.map(f =>
+        `- 文件「${f.name}」(${(f.size / 1024).toFixed(1)} KB)，已保存到: ${f.path}`
+      ).join('\n')
+      const fileNote = hasText
+        ? `\n\n用户通过微信发送了 ${files.length} 个文件：\n${fileInfos}`
+        : `用户通过微信发送了 ${files.length} 个文件：\n${fileInfos}`
+      const combinedText = timePrefix + texts.join('\n') + fileNote
+      const content: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }> = [{ type: 'text', text: combinedText }]
+      for (const img of images) {
+        content.push({ type: 'image', data: img.data, mimeType: img.mediaType })
+      }
+      const deliverOpts = isBusy ? { deliverAs: 'followUp' as const } : undefined
+      log(`[DRAIN-SEND] file+text, files=${files.length}, images=${images.length}, mode=${deliverOpts?.deliverAs ?? 'direct'}`)
+      pi.sendUserMessage(content, deliverOpts)
+    } else if (hasImages) {
       const content: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }> = []
       // 有图片但没文字时，自动加描述
       if (!hasText) {
@@ -427,9 +540,13 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       log(`[DRAIN-SEND] text, text=${texts.join(' ').slice(0, 80)}, mode=${deliverOpts?.deliverAs ?? 'direct'}, turnSeq=${turnSeq}`)
       pi.sendUserMessage(timePrefix + texts.join('\n'), deliverOpts)
     } else {
-      // 什么都没有，跳过；如果是图片批次，给用户一个明确失败提示
-      if (hadImageMessages) {
-        await client.sendText(first.userId, `⚠️ 图片下载失败、格式不支持或超过大小限制（当前上限 ${Math.round(getImageMaxBytes() / 1024 / 1024)}MB）。`).catch(() => {})
+      // 什么都没有，跳过；给用户一个明确失败提示
+      if (hadImageMessages || hadFileMessages) {
+        const limitMB = Math.round(getImageMaxBytes() / 1024 / 1024)
+        const msg = hadImageMessages
+          ? `⚠️ 图片下载失败、格式不支持或超过大小限制（当前上限 ${limitMB}MB）。`
+          : `⚠️ 文件下载失败或格式不支持。`
+        await client.sendText(first.userId, msg).catch(() => {})
       }
       pendingInjection = null
       void client.stopTyping(first.userId).catch(() => {})
@@ -437,8 +554,8 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       return
     }
 
-    // 文本消息在发送给 agent 后回执；图片批次已在收到第一张图时合并回执，避免刷屏
-    if (!hadImageMessages) {
+    // 文本消息在发送给 agent 后回执；图片/文件批次已在收到第一条时合并回执，避免刷屏
+    if (!hadImageMessages && !hadFileMessages) {
       try {
         await client.sendText(first.userId, ACK_TEXT)
       } catch (err) {
@@ -447,15 +564,36 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     }
   }
 
+  // 保存微信接收的文件到工作目录下的 .pi-wechat-files/
+  async function saveFileToDisk(buffer: Buffer, fileName: string): Promise<string | null> {
+    if (!wechatFilesDir) {
+      log('文件保存失败: wechatFilesDir 未设置')
+      return null
+    }
+    try {
+      fs.mkdirSync(wechatFilesDir, { recursive: true })
+      const ts = Date.now().toString(36)
+      const safeName = fileName.replace(/[^\w.\-\u4e00-\u9fff]/g, '_')
+      const filePath = path.join(wechatFilesDir, `${ts}_${safeName}`)
+      fs.writeFileSync(filePath, buffer)
+      return filePath
+    } catch (err) {
+      log(`文件保存失败: ${err}`)
+      return null
+    }
+  }
+
   async function completeActiveRequest(
     messages: Array<{ role?: string; content?: unknown }>,
   ): Promise<void> {
     const request = activeRequest
     activeRequest = null
+    completingRequest = true
     log(`[COMPLETE-ENTER] request=${!!request} requestId=${request?.id?.slice(0,8) ?? 'null'} client=${!!client} turnSeq=${turnSeq} sentCount=${assistantReplySentCount}`)
 
     if (!request || !client) {
       log(`[COMPLETE-SKIP] no request or client, calling drainQueue`)
+      completingRequest = false
       drainQueue()
       return
     }
@@ -491,6 +629,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       log(`[COMPLETE-ERROR] ${formatError(error)}`)
       notify(`发送微信回复失败: ${formatError(error)}`, 'error')
     } finally {
+      completingRequest = false
       await client.stopTyping(request.userId).catch(() => {})
       updateStatusBar()
       log(`[COMPLETE-DEFER] deferring drainQueue via setTimeout(0)`)
@@ -593,6 +732,263 @@ export default function wechatAssistant(pi: ExtensionAPI) {
 
   // --- 远程命令处理 ---
 
+  // --- 远程命令表：命令名 → 处理函数 ---
+  // 每个处理函数返回发给用户的文本（null 表示不发送）
+  type RemoteCommandFn = (args: string, userId: string, client: WeixinClient) => Promise<string | null>
+
+  const remoteCommands: Record<string, RemoteCommandFn> = {
+    async model(args, userId, client) {
+      if (!latestCtx) return '❌ 会话上下文尚未就绪，请稍后再试'
+      const registry = latestCtx.modelRegistry
+      if (!args) {
+        const models = registry.getAvailable()
+        const current = latestCtx.model ? `${latestCtx.model.provider}/${latestCtx.model.id}` : 'unknown'
+        const lines = [`当前模型: ${current}`, '', '可用模型:']
+        const seen = new Set<string>()
+        for (const m of models) {
+          const key = `${m.provider}/${m.id}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          lines.push(`  ${key}${key === current ? ' ←' : ''}`)
+        }
+        return lines.join('\n')
+      }
+      let model
+      if (args.includes('/')) {
+        const [provider, ...idParts] = args.split('/')
+        model = registry.find(provider, idParts.join('/'))
+      } else {
+        for (const m of registry.getAvailable()) {
+          if (m.id === args || m.id.includes(args)) { model = m; break }
+        }
+      }
+      if (!model) return `❌ 未找到模型: ${args}\n输入 /model 查看可用列表`
+      const success = await pi.setModel(model)
+      return success
+        ? `✅ 已切换模型: ${model.provider}/${model.id}`
+        : `❌ 切换失败: ${model.provider}/${model.id} 没有可用的 API key`
+    },
+
+    async thinking(args, _userId, _client) {
+      const valid = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
+      if (!args) return `当前 thinking level: ${pi.getThinkingLevel()}\n可选: ${valid.join(', ')}`
+      if (valid.includes(args)) {
+        pi.setThinkingLevel(args as any)
+        return `✅ thinking level 已设为: ${args}`
+      }
+      return `❌ 无效 level: ${args}\n可选: ${valid.join(', ')}`
+    },
+
+    async tools(args, _userId, _client) {
+      if (!args) {
+        const active = pi.getActiveTools()
+        const all = pi.getAllTools().map(t => t.name)
+        const lines = ['活跃工具:', ...active.map(t => `  ✅ ${t}`), '', '全部工具:']
+        for (const t of all) lines.push(`  ${active.includes(t) ? '✅' : '⬜'} ${t}`)
+        return lines.join('\n')
+      }
+      const toolNames = args.split(/[,\s]+/).filter(Boolean)
+      const allNames = pi.getAllTools().map(t => t.name)
+      const invalid = toolNames.filter(t => !allNames.includes(t))
+      if (invalid.length > 0) return `❌ 未知工具: ${invalid.join(', ')}\n输入 /tools 查看全部`
+      const valid = toolNames.filter(t => allNames.includes(t))
+      pi.setActiveTools(valid)
+      return `✅ 活跃工具已设为: ${valid.join(', ')}`
+    },
+
+    async compact(_args, userId, client) {
+      if (!latestCtx) return '❌ 会话上下文尚未就绪'
+      latestCtx.compact({
+        onComplete: () => { void client.sendText(userId, '✅ 上下文压缩完成') },
+        onError: (error) => { void client.sendText(userId, `❌ 压缩失败: ${error.message}`) },
+      })
+      return '⏳ 正在压缩上下文...'
+    },
+
+    async stop(_args, userId, _client) {
+      if (!latestCtx) return '❌ 会话上下文尚未就绪'
+      if (latestCtx.isIdle()) return '当前没有在执行任务'
+      latestCtx.abort()
+      return '✅ 已发送停止信号'
+    },
+
+    async status(_args, _userId, _client) {
+      if (!latestCtx) return '❌ 会话上下文尚未就绪'
+      const lines: string[] = []
+
+      // 模型和配置
+      if (latestCtx.model) lines.push(`模型: ${latestCtx.model.provider}/${latestCtx.model.id}`)
+      lines.push(`Thinking: ${pi.getThinkingLevel()}`)
+      lines.push(`工具数: ${pi.getActiveTools().length}`)
+      lines.push(`排队消息: ${queue.length}`)
+
+      // 消息/Token 统计：从最近一次压缩后开始计算
+      const branch = latestCtx.sessionManager.getBranch()
+      let startIndex = 0
+      for (let i = branch.length - 1; i >= 0; i--) {
+        if (branch[i].type === 'compaction') { startIndex = i + 1; break }
+      }
+      let userMsgs = 0, assistantMsgs = 0, toolCalls = 0, toolResults = 0
+      let totalInput = 0, totalOutput = 0, totalCacheRead = 0, totalCost = 0
+      for (let i = startIndex; i < branch.length; i++) {
+        const entry = branch[i]
+        if (entry.type !== 'message') continue
+        const msg = (entry as { message?: { role?: string; content?: Array<{ type: string }>; usage?: { input?: number; output?: number; cacheRead?: number; cost?: { total?: number } } } }).message
+        if (!msg) continue
+        if (msg.role === 'user') userMsgs++
+        else if (msg.role === 'assistant') {
+          assistantMsgs++
+          totalInput += msg.usage?.input ?? 0
+          totalOutput += msg.usage?.output ?? 0
+          totalCacheRead += msg.usage?.cacheRead ?? 0
+          totalCost += msg.usage?.cost?.total ?? 0
+          toolCalls += (msg.content ?? []).filter((c: { type: string }) => c.type === 'toolCall').length
+        } else if (msg.role === 'toolResult') toolResults++
+      }
+      const totalMsgs = userMsgs + assistantMsgs + toolResults
+      if (totalMsgs > 0) {
+        lines.push(`消息: ${userMsgs}u / ${assistantMsgs}a / ${toolCalls}tc / ${toolResults}tr = ${totalMsgs}`)
+        lines.push(`Token: ${(totalInput + totalOutput + totalCacheRead).toLocaleString()} (in ${totalInput.toLocaleString()} + out ${totalOutput.toLocaleString()} + cache ${totalCacheRead.toLocaleString()})`)
+      }
+      if (totalCost > 0) lines.push(`费用: $${totalCost.toFixed(4)}`)
+      if (startIndex > 0) lines.push('(数据从最近一次压缩后开始计算)')
+
+      // 上下文用量
+      const usage = latestCtx.getContextUsage()
+      if (usage) {
+        if (usage.tokens != null) {
+          const pct = usage.percent != null ? ` (${usage.percent}%)` : ''
+          lines.push(`上下文: ${usage.tokens.toLocaleString()} / ${usage.contextWindow.toLocaleString()} tokens${pct}`)
+        } else {
+          // 压缩后 tokens 为 null，用分支统计的 token 数作为降级估算
+          const estimated = totalInput + totalOutput + totalCacheRead
+          if (estimated > 0) {
+            lines.push(`上下文: ~${estimated.toLocaleString()} / ${usage.contextWindow.toLocaleString()} tokens (压缩后估算)`)
+          } else {
+            lines.push(`上下文: 待首次回复 / ${usage.contextWindow.toLocaleString()} tokens`)
+          }
+        }
+      }
+
+      // 微信配置
+      lines.push(`图片等待: ${getImageBatchWaitMs() / 1000}s | 上限: ${Math.round(getImageMaxBytes() / 1024 / 1024)}MB`)
+      return lines.join('\n')
+    },
+
+    async config(_args, _userId, _client) {
+      return [
+        `图片合并等待: ${getImageBatchWaitMs()}ms`,
+        `图片上限: ${getImageMaxBytes()} bytes (${Math.round(getImageMaxBytes() / 1024 / 1024)}MB)`,
+        '可在 config.json 或环境变量中调整：',
+        'PI_WECHAT_IMAGE_BATCH_WAIT_MS',
+        'PI_WECHAT_IMAGE_MAX_BYTES',
+      ].join('\n')
+    },
+
+    async name(args, _userId, _client) {
+      if (!args) {
+        const current = pi.getSessionName()
+        return current ? `当前会话名称: ${current}\n输入 /name <新名称> 来修改` : '当前会话未命名\n输入 /name <名称> 来设置'
+      }
+      pi.setSessionName(args)
+      return `✅ 会话名称已设为: ${args}`
+    },
+
+    async session(_args, _userId, _client) {
+      if (!latestCtx) return '❌ 会话上下文尚未就绪'
+      const sm = latestCtx.sessionManager
+      const lines: string[] = []
+
+      // 文件路径（截断显示）
+      const file = sm.getSessionFile()
+      if (file) {
+        const display = file.length > 60 ? '...' + file.slice(-57) : file
+        lines.push(`文件: ${display}`)
+      }
+      lines.push(`会话 ID: ${sm.getSessionId()}`)
+
+      // 只统计当前分支（与 TUI /session 一致）
+      const branch = sm.getBranch()
+      let userCount = 0, assistantCount = 0, toolCallCount = 0, toolResultCount = 0, messageCount = 0
+      let totalInput = 0, totalOutput = 0, totalCacheRead = 0
+      let totalCost = 0
+
+      for (const entry of branch) {
+        if (entry.type !== 'message') continue
+        messageCount++
+        const msg = (entry as { message?: { role?: string; content?: unknown[]; usage?: { input?: number; output?: number; cacheRead?: number; cost?: { total?: number } } } }).message
+        if (!msg) continue
+        switch (msg.role) {
+          case 'user':
+            userCount++
+            break
+          case 'assistant': {
+            assistantCount++
+            // tool call 内嵌在 assistant content 中
+            if (Array.isArray(msg.content)) {
+              for (const part of msg.content) {
+                if ((part as { type?: string }).type === 'toolCall') toolCallCount++
+              }
+            }
+            if (msg.usage) {
+              totalInput += msg.usage.input ?? 0
+              totalOutput += msg.usage.output ?? 0
+              totalCacheRead += msg.usage.cacheRead ?? 0
+              totalCost += msg.usage.cost?.total ?? 0
+            }
+            break
+          }
+          case 'toolResult':
+            toolResultCount++
+            break
+        }
+      }
+
+      lines.push('')
+      lines.push('Messages')
+      lines.push(` User: ${userCount}`)
+      lines.push(` Assistant: ${assistantCount}`)
+      lines.push(` Tool Calls: ${toolCallCount}`)
+      lines.push(` Tool Results: ${toolResultCount}`)
+      lines.push(` Total: ${messageCount}`)
+
+      if (totalInput > 0 || totalOutput > 0) {
+        const totalTokens = totalInput + totalOutput + totalCacheRead
+        lines.push('')
+        lines.push('Tokens')
+        lines.push(` Input: ${totalInput.toLocaleString()}`)
+        lines.push(` Output: ${totalOutput.toLocaleString()}`)
+        if (totalCacheRead > 0) lines.push(` Cache Read: ${totalCacheRead.toLocaleString()}`)
+        lines.push(` Total: ${totalTokens.toLocaleString()}`)
+      }
+
+      if (totalCost > 0) {
+        lines.push('')
+        lines.push('Cost')
+        lines.push(` Total: $${totalCost.toFixed(3)}`)
+      }
+
+      return lines.join('\n')
+    },
+
+    async help(_args, _userId, _client) {
+      return [
+        '📋 微信远程命令:',
+        '',
+        '/status          查看当前状态',
+        '/stop            停止当前生成',
+        '/model           查看 / 切换模型',
+        '/name <名称>     设置会话名称',
+        '/session         查看会话详情',
+        '/config          查看图片相关配置',
+        '/help            显示帮助',
+        '',
+        '高级: /thinking, /tools, /compact',
+        '直接发文字、语音、图片 = 正常对话',
+      ].join('\n')
+    },
+  }
+
   async function handleRemoteCommand(
     text: string,
     userId: string,
@@ -604,170 +1000,19 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     const [cmd, ...rest] = trimmed.slice(1).split(/\s+/)
     const args = rest.join(' ')
 
-    switch (cmd) {
-      case 'model': {
-        // /model — 列出或切换模型
-        if (!latestCtx) return false
-        const registry = latestCtx.modelRegistry
-        if (!args) {
-          // 列出可用模型
-          const models = registry.getAvailable()
-          const current = latestCtx.model ? `${latestCtx.model.provider}/${latestCtx.model.id}` : 'unknown'
-          const lines = [`当前模型: ${current}`, '', '可用模型:']
-          const seen = new Set<string>()
-          for (const m of models) {
-            const key = `${m.provider}/${m.id}`
-            if (seen.has(key)) continue
-            seen.add(key)
-            lines.push(`  ${key}${key === current ? ' ←' : ''}`)
-          }
-          await activeClient.sendText(userId, lines.join('\n'))
-        } else {
-          // 切换模型: /model provider/id 或 /model id
-          let model
-          if (args.includes('/')) {
-            const [provider, ...idParts] = args.split('/')
-            model = registry.find(provider, idParts.join('/'))
-          } else {
-            // 模糊匹配：遍历所有 provider 找第一个匹配的
-            for (const m of registry.getAvailable()) {
-              if (m.id === args || m.id.includes(args)) { model = m; break }
-            }
-          }
-          if (model) {
-            const success = await pi.setModel(model)
-            if (success) {
-              await activeClient.sendText(userId, `✅ 已切换模型: ${model.provider}/${model.id}`)
-            } else {
-              await activeClient.sendText(userId, `❌ 切换失败: ${model.provider}/${model.id} 没有可用的 API key`)
-            }
-          } else {
-            await activeClient.sendText(userId, `❌ 未找到模型: ${args}\n输入 /model 查看可用列表`)
-          }
-        }
-        return true
-      }
+    const handler = remoteCommands[cmd]
+    if (!handler) return false
 
-      case 'thinking': {
-        // /thinking — 查看/设置 thinking level
-        if (!args) {
-          const current = pi.getThinkingLevel()
-          await activeClient.sendText(userId, `当前 thinking level: ${current}\n可选: off, minimal, low, medium, high, xhigh`)
-        } else {
-          const valid = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
-          if (valid.includes(args)) {
-            pi.setThinkingLevel(args as any)
-            await activeClient.sendText(userId, `✅ thinking level 已设为: ${args}`)
-          } else {
-            await activeClient.sendText(userId, `❌ 无效 level: ${args}\n可选: ${valid.join(', ')}`)
-          }
-        }
-        return true
+    try {
+      const reply = await handler(args, userId, activeClient)
+      if (reply !== null) {
+        await activeClient.sendText(userId, reply)
       }
-
-      case 'tools': {
-        // /tools — 查看/设置活跃工具
-        if (!args) {
-          const active = pi.getActiveTools()
-          const all = pi.getAllTools().map(t => t.name)
-          const lines = ['活跃工具:', ...active.map(t => `  ✅ ${t}`), '', '全部工具:']
-          for (const t of all) {
-            lines.push(`  ${active.includes(t) ? '✅' : '⬜'} ${t}`)
-          }
-          await activeClient.sendText(userId, lines.join('\n'))
-        } else {
-          const toolNames = args.split(/[,\s]+/).filter(Boolean)
-          const allNames = pi.getAllTools().map(t => t.name)
-          const valid = toolNames.filter(t => allNames.includes(t))
-          const invalid = toolNames.filter(t => !allNames.includes(t))
-          if (invalid.length > 0) {
-            await activeClient.sendText(userId, `❌ 未知工具: ${invalid.join(', ')}\n输入 /tools 查看全部`)
-          } else {
-            pi.setActiveTools(valid)
-            await activeClient.sendText(userId, `✅ 活跃工具已设为: ${valid.join(', ')}`)
-          }
-        }
-        return true
-      }
-
-      case 'compact': {
-        // /compact — 手动压缩上下文
-        if (!latestCtx) return false
-        latestCtx.compact({
-          onComplete: () => {
-            void activeClient.sendText(userId, '✅ 上下文压缩完成')
-          },
-          onError: (error) => {
-            void activeClient.sendText(userId, `❌ 压缩失败: ${error.message}`)
-          },
-        })
-        await activeClient.sendText(userId, '⏳ 正在压缩上下文...')
-        return true
-      }
-
-      case 'stop': {
-        // /stop — 停止当前生成
-        if (!latestCtx) return false
-        if (latestCtx.isIdle()) {
-          await activeClient.sendText(userId, '当前没有在执行任务')
-        } else {
-          latestCtx.abort()
-          await activeClient.sendText(userId, '✅ 已发送停止信号')
-        }
-        return true
-      }
-
-      case 'status': {
-        // /status — 查看 pi 当前状态
-        if (!latestCtx) return false
-        const lines: string[] = []
-        if (latestCtx.model) lines.push(`模型: ${latestCtx.model.provider}/${latestCtx.model.id}`)
-        lines.push(`Thinking: ${pi.getThinkingLevel()}`)
-        lines.push(`工具数: ${pi.getActiveTools().length}`)
-        const usage = latestCtx.getContextUsage()
-        if (usage && usage.tokens != null) {
-          const pct = usage.percent != null ? ` (${usage.percent}%)` : ''
-          lines.push(`上下文: ${usage.tokens.toLocaleString()} / ${usage.contextWindow.toLocaleString()} tokens${pct}`)
-        }
-        lines.push(`排队消息: ${queue.length}`)
-        lines.push(`图片合并等待: ${getImageBatchWaitMs() / 1000}s`)
-        lines.push(`图片上限: ${Math.round(getImageMaxBytes() / 1024 / 1024)}MB`)
-        await activeClient.sendText(userId, lines.join('\n'))
-        return true
-      }
-
-      case 'config': {
-        await activeClient.sendText(userId, [
-          `图片合并等待: ${getImageBatchWaitMs()}ms`,
-          `图片上限: ${getImageMaxBytes()} bytes (${Math.round(getImageMaxBytes() / 1024 / 1024)}MB)`,
-          '可在 config.json 或环境变量中调整：',
-          'PI_WECHAT_IMAGE_BATCH_WAIT_MS',
-          'PI_WECHAT_IMAGE_MAX_BYTES',
-        ].join('\n'))
-        return true
-      }
-
-      case 'help': {
-        const help = [
-          '📋 常用微信命令:',
-          '',
-          '/status          查看当前状态',
-          '/stop            停止当前生成',
-          '/model           查看模型',
-          '/model <名称>    切换模型',
-          '/config          查看图片相关配置',
-          '/help            显示帮助',
-          '',
-          '高级命令仍可用: /thinking, /tools, /compact',
-          '直接发文字、语音、图片 = 正常对话',
-        ]
-        await activeClient.sendText(userId, help.join('\n'))
-        return true
-      }
-
-      default:
-        return false
+    } catch (err) {
+      log(`远程命令 /${cmd} 执行失败: ${formatError(err)}`)
+      await activeClient.sendText(userId, `❌ 命令执行失败: ${formatError(err)}`).catch(() => {})
     }
+    return true
   }
 
   // --- 单条消息处理 ---
@@ -1015,6 +1260,95 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     },
   })
 
+  // --- send_file tool: AI 可直接调用发文件到微信 ---
+  pi.registerTool({
+    name: 'send_file_to_wechat',
+    label: 'Send File to WeChat',
+    description: '发送文件到当前微信对话。用于将 AI 产出的代码、报告、图片等文件直接发给微信用户。',
+    promptSnippet: '发送指定路径的文件到微信',
+    promptGuidelines: [
+      '当用户通过微信要求产出文件时，先写入文件再用 send_file_to_wechat 发送。',
+      'send_file_to_wechat 需要微信桥接处于 start 状态，并且用户曾发送过消息（建立了 context_token）。',
+      '如果发送失败，工具会返回错误信息。不要重试超过 1 次。',
+    ],
+    parameters: Type.Object({
+      filePath: Type.String({ description: '要发送的文件路径（绝对路径或相对路径）' }),
+      fileName: Type.Optional(Type.String({ description: '在微信中显示的文件名（可选，默认使用原文件名）' })),
+    }),
+    async execute(_toolCallId, params, _signal) {
+      if (!client) {
+        return { content: [{ type: 'text', text: '❌ 微信未登录，请先在 TUI 执行 /wechat login 和 /wechat start' }], details: {} }
+      }
+      if (!running) {
+        return { content: [{ type: 'text', text: '❌ 微信桥接未启动，请先在 TUI 执行 /wechat start' }], details: {} }
+      }
+      if (!lastWechatUser) {
+        return { content: [{ type: 'text', text: '❌ 尚未收到微信用户消息，无法获取 context_token。请先让微信用户发送一条消息。' }], details: {} }
+      }
+      // 解析文件路径（相对于当前工作目录）
+      const cwd = latestCtx?.cwd ?? process.cwd()
+      const resolvedPath = path.isAbsolute(params.filePath) ? params.filePath : path.join(cwd, params.filePath)
+      if (!fs.existsSync(resolvedPath)) {
+        return { content: [{ type: 'text', text: `❌ 文件不存在: ${resolvedPath}` }], details: {} }
+      }
+      try {
+        const stats = fs.statSync(resolvedPath)
+        if (stats.size > 50 * 1024 * 1024) {
+          return { content: [{ type: 'text', text: `❌ 文件过大 (${(stats.size / 1024 / 1024).toFixed(1)}MB)，上限 50MB` }], details: {} }
+        }
+        await client.sendFile(lastWechatUser.userId, resolvedPath, params.fileName)
+        const name = params.fileName ?? path.basename(resolvedPath)
+        return { content: [{ type: 'text', text: `✅ 文件「${name}」(${(stats.size / 1024).toFixed(1)} KB) 已发送到微信` }], details: {} }
+      } catch (err) {
+        log(`send_file_to_wechat 失败: ${formatError(err)}`)
+        return { content: [{ type: 'text', text: `❌ 发送失败: ${formatError(err)}` }], details: {} }
+      }
+    },
+  })
+
+  // --- send_image_to_wechat tool: AI 可直接发图片到微信 ---
+  pi.registerTool({
+    name: 'send_image_to_wechat',
+    label: 'Send Image to WeChat',
+    description: '发送图片到当前微信对话。用于将 AI 生成的图表、截图等图片直接发给微信用户，用户可在微信中直接预览。',
+    promptSnippet: '发送指定路径的图片到微信（可预览）',
+    promptGuidelines: [
+      '当用户通过微信要求生成图表/截图/图片时，先生成图片文件再用 send_image_to_wechat 发送。',
+      'send_image_to_wechat 需要微信桥接处于 start 状态，并且用户曾发送过消息。',
+      '如果发送失败不要重试超过 1 次。',
+    ],
+    parameters: Type.Object({
+      imagePath: Type.String({ description: '要发送的图片路径（绝对路径或相对路径，支持 png/jpg/gif/webp）' }),
+    }),
+    async execute(_toolCallId, params, _signal) {
+      if (!client) {
+        return { content: [{ type: 'text', text: '❌ 微信未登录，请先在 TUI 执行 /wechat login 和 /wechat start' }], details: {} }
+      }
+      if (!running) {
+        return { content: [{ type: 'text', text: '❌ 微信桥接未启动，请先在 TUI 执行 /wechat start' }], details: {} }
+      }
+      if (!lastWechatUser) {
+        return { content: [{ type: 'text', text: '❌ 尚未收到微信用户消息，无法获取 context_token。请先让微信用户发送一条消息。' }], details: {} }
+      }
+      const cwd = latestCtx?.cwd ?? process.cwd()
+      const resolvedPath = path.isAbsolute(params.imagePath) ? params.imagePath : path.join(cwd, params.imagePath)
+      if (!fs.existsSync(resolvedPath)) {
+        return { content: [{ type: 'text', text: `❌ 图片不存在: ${resolvedPath}` }], details: {} }
+      }
+      try {
+        const stats = fs.statSync(resolvedPath)
+        if (stats.size > 50 * 1024 * 1024) {
+          return { content: [{ type: 'text', text: `❌ 图片过大 (${(stats.size / 1024 / 1024).toFixed(1)}MB)，上限 50MB` }], details: {} }
+        }
+        await client.sendImage(lastWechatUser.userId, resolvedPath)
+        return { content: [{ type: 'text', text: `✅ 图片 (${(stats.size / 1024).toFixed(1)} KB) 已发送到微信` }], details: {} }
+      } catch (err) {
+        log(`send_image_to_wechat 失败: ${formatError(err)}`)
+        return { content: [{ type: 'text', text: `❌ 发送失败: ${formatError(err)}` }], details: {} }
+      }
+    },
+  })
+
   // ============================================================================
   // 事件处理
   // ============================================================================
@@ -1022,6 +1356,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   // 会话启动
   pi.on('session_start', async (_event, ctx) => {
     latestCtx = ctx
+    wechatFilesDir = path.join(ctx.cwd, WECHAT_FILES_SUBDIR)
     client ??= loadClient()
     updateStatusBar()
 

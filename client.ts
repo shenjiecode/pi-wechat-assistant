@@ -2,7 +2,11 @@
 // WeixinClient — 封装微信 iLink Bot 消息收发
 // ============================================================================
 
-import { getUpdates as apiGetUpdates, getConfig, sendMessage as apiSendMessage, sendTyping as apiSendTyping, isSessionExpired } from './api.js'
+import { getUpdates as apiGetUpdates, getConfig, sendMessage as apiSendMessage, sendTyping as apiSendTyping, isSessionExpired, getUploadUrl, uploadToCdn, sendMediaMessage } from './api.js'
+import { randomBytes, createHash } from 'node:crypto'
+import { createCipheriv } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { basename } from 'node:path'
 import { debugLog } from './logger.js'
 import type { Credentials, IncomingMessage, MessageItem, WeixinMessage } from './types.js'
 
@@ -74,6 +78,109 @@ export class WeixinClient {
     await apiSendMessage(this.baseUrl, this.token, userId, message, contextToken)
   }
 
+  // 发送文件：读取 → 加密 → 上传 CDN → 发送消息
+  async sendFile(userId: string, filePath: string, fileName?: string): Promise<void> {
+    const contextToken = this.contextTokens.get(userId)
+    if (!contextToken) {
+      throw new Error(`No cached context token for user ${userId}`)
+    }
+
+    const fileBuffer = readFileSync(filePath)
+    const rawSize = fileBuffer.length
+    const rawMd5 = createHash('md5').update(fileBuffer).digest('hex')
+    const aesKey = randomBytes(16).toString('hex')
+    const cipher = createCipheriv('aes-128-ecb', Buffer.from(aesKey, 'hex'), null)
+    const encryptedBuffer = Buffer.concat([cipher.update(fileBuffer), cipher.final()])
+    const encryptedSize = encryptedBuffer.length
+    const filekey = randomBytes(16).toString('hex')
+
+    const uploadResp = await getUploadUrl(this.baseUrl, this.token, {
+      filekey,
+      mediaType: 3, // FILE
+      toUserId: userId,
+      rawSize,
+      rawMd5,
+      encryptedSize,
+      aesKey,
+    })
+
+    let uploadParam = uploadResp.upload_param
+    if (!uploadParam && uploadResp.upload_full_url) {
+      const url = new URL(uploadResp.upload_full_url)
+      uploadParam = url.searchParams.get('encrypted_query_param') ?? undefined
+    }
+    if (!uploadParam) throw new Error('Failed to get upload URL')
+
+    const cdnBase = 'https://novac2c.cdn.weixin.qq.com/c2c'
+    const downloadParam = await uploadToCdn(cdnBase, uploadParam, filekey, encryptedBuffer)
+
+    // aes_key 编码方式: base64(utf8(hex))
+    const encodedAesKey = Buffer.from(aesKey, 'utf-8').toString('base64')
+
+    await sendMediaMessage(this.baseUrl, this.token, userId, contextToken, [{
+      type: 4, // FILE
+      file_item: {
+        media: {
+          encrypt_query_param: downloadParam,
+          aes_key: encodedAesKey,
+          encrypt_type: 1,
+        },
+        file_name: fileName ?? basename(filePath),
+        len: String(rawSize),
+      },
+    }])
+  }
+
+  // 发送图片：与 sendFile 相同流程，用 mediaType=1, item_type=2
+  async sendImage(userId: string, filePath: string): Promise<void> {
+    const contextToken = this.contextTokens.get(userId)
+    if (!contextToken) {
+      throw new Error(`No cached context token for user ${userId}`)
+    }
+
+    const fileBuffer = readFileSync(filePath)
+    const rawSize = fileBuffer.length
+    const rawMd5 = createHash('md5').update(fileBuffer).digest('hex')
+    const aesKey = randomBytes(16).toString('hex')
+    const cipher = createCipheriv('aes-128-ecb', Buffer.from(aesKey, 'hex'), null)
+    const encryptedBuffer = Buffer.concat([cipher.update(fileBuffer), cipher.final()])
+    const encryptedSize = encryptedBuffer.length
+    const filekey = randomBytes(16).toString('hex')
+
+    const uploadResp = await getUploadUrl(this.baseUrl, this.token, {
+      filekey,
+      mediaType: 1, // IMAGE
+      toUserId: userId,
+      rawSize,
+      rawMd5,
+      encryptedSize,
+      aesKey,
+    })
+
+    let uploadParam = uploadResp.upload_param
+    if (!uploadParam && uploadResp.upload_full_url) {
+      const url = new URL(uploadResp.upload_full_url)
+      uploadParam = url.searchParams.get('encrypted_query_param') ?? undefined
+    }
+    if (!uploadParam) throw new Error('Failed to get upload URL')
+
+    const cdnBase = 'https://novac2c.cdn.weixin.qq.com/c2c'
+    const downloadParam = await uploadToCdn(cdnBase, uploadParam, filekey, encryptedBuffer)
+    const encodedAesKey = Buffer.from(aesKey, 'utf-8').toString('base64')
+
+    await sendMediaMessage(this.baseUrl, this.token, userId, contextToken, [{
+      type: 2, // IMAGE
+      image_item: {
+        media: {
+          encrypt_query_param: downloadParam,
+          aes_key: encodedAesKey,
+          encrypt_type: 1,
+        },
+        mid_size: encryptedSize,
+      },
+    }])
+  }
+
   // --- 输入态 ---
 
   async startTyping(userId: string): Promise<void> {
@@ -102,7 +209,7 @@ export class WeixinClient {
 
     debugLog(`normalizeIncomingMessage: item_list=${JSON.stringify(raw.item_list)?.slice(0, 500)}`)
     const items = raw.item_list ?? []
-    const { type, text, imageUrl, imageAesKey } = extractContent(items)
+    const { type, text, imageUrl, imageAesKey, fileEncryptParam, fileAesKey, fileName } = extractContent(items)
 
     return {
       messageId: String(raw.message_id ?? ''),
@@ -111,6 +218,9 @@ export class WeixinClient {
       type,
       imageUrl,
       imageAesKey,
+      fileEncryptParam,
+      fileAesKey,
+      fileName,
       raw: raw as WeixinMessage,
       contextToken: raw.context_token ?? '',
       timestamp: new Date(raw.create_time_ms ?? Date.now()),
@@ -134,9 +244,8 @@ export class WeixinClient {
 
 // --- 消息内容提取 ---
 
-function extractContent(items: MessageItem[]): { type: IncomingMessage['type']; text: string; imageUrl?: string; imageAesKey?: string } {
+function extractContent(items: MessageItem[]): { type: IncomingMessage['type']; text: string; imageUrl?: string; imageAesKey?: string; fileEncryptParam?: string; fileAesKey?: string; fileName?: string } {
   let hasVideo = false
-  let hasFile = false
 
   for (const item of items) {
     debugLog(`extractContent: item.type=${item.type}`)
@@ -166,8 +275,13 @@ function extractContent(items: MessageItem[]): { type: IncomingMessage['type']; 
         return { type: 'voice', text: '[语音消息，暂不支持]' }
       }
       case 4: { // 文件
-        hasFile = true
-        break
+        const encryptParam = item.file_item?.media?.encrypt_query_param
+        const aesKey = item.file_item?.media?.aes_key
+        const fileName = item.file_item?.file_name
+        if (encryptParam) {
+          return { type: 'file', text: '', fileEncryptParam: encryptParam, fileAesKey: aesKey, fileName }
+        }
+        return { type: 'file', text: '' }
       }
       case 5: { // 视频
         hasVideo = true
@@ -176,7 +290,6 @@ function extractContent(items: MessageItem[]): { type: IncomingMessage['type']; 
     }
   }
 
-  if (hasFile) return { type: 'file', text: '' }
   if (hasVideo) return { type: 'video', text: '' }
   return { type: 'unknown', text: '' }
 }

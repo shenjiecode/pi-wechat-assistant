@@ -8,10 +8,10 @@ import type {
   GetConfigResp,
   GetUpdatesReq,
   GetUpdatesResp,
-  MessageItemType,
-  MessageType,
-  MessageState,
+  GetUploadUrlReq,
+  GetUploadUrlResp,
   SendMessageReq,
+  SendMediaMessageReq,
   SendTypingReq,
 } from './types.js'
 
@@ -227,4 +227,79 @@ export interface QrStatusResponse {
 
 export function isSessionExpired(error: unknown): boolean {
   return error instanceof ApiError && error.code === -14
+}
+
+// --- 媒体上传 ---
+
+export async function getUploadUrl(
+  baseUrl: string,
+  token: string,
+  params: {
+    filekey: string
+    mediaType: number
+    toUserId: string
+    rawSize: number
+    rawMd5: string
+    encryptedSize: number
+    aesKey: string
+  },
+): Promise<GetUploadUrlResp> {
+  const body: GetUploadUrlReq = {
+    filekey: params.filekey,
+    media_type: params.mediaType,
+    to_user_id: params.toUserId,
+    rawsize: params.rawSize,
+    rawfilemd5: params.rawMd5,
+    filesize: params.encryptedSize,
+    no_need_thumb: true,
+    aeskey: params.aesKey,
+    base_info: buildBaseInfo(),
+  }
+  return apiPost<GetUploadUrlResp>(baseUrl, '/ilink/bot/getuploadurl', body, token, 20_000)
+}
+
+export async function uploadToCdn(
+  cdnBase: string,
+  uploadParam: string,
+  filekey: string,
+  encryptedBuffer: Buffer,
+): Promise<string> {
+  const url = `${cdnBase}/upload?encrypted_query_param=${encodeURIComponent(uploadParam)}&filekey=${encodeURIComponent(filekey)}`
+  const response = await fetch(url, {
+    method: 'POST',
+    body: new Uint8Array(encryptedBuffer),
+    headers: { 'Content-Type': 'application/octet-stream' },
+    signal: AbortSignal.timeout(60_000),
+  })
+  if (response.status !== 200) {
+    throw new ApiError(`CDN upload failed: HTTP ${response.status}`, { status: response.status })
+  }
+  const downloadParam = response.headers.get('x-encrypted-param')
+  if (!downloadParam) {
+    throw new Error('CDN upload response missing x-encrypted-param header')
+  }
+  return downloadParam
+}
+
+// 发送带媒体 item 的消息（图片/文件/视频/语音）
+export async function sendMediaMessage(
+  baseUrl: string,
+  token: string,
+  userId: string,
+  contextToken: string,
+  itemList: SendMediaMessageReq['msg']['item_list'],
+): Promise<Record<string, unknown>> {
+  const body: SendMediaMessageReq = {
+    msg: {
+      from_user_id: '',
+      to_user_id: userId,
+      client_id: randomUUID(),
+      message_type: 2,
+      message_state: 2,
+      context_token: contextToken,
+      item_list: itemList,
+    },
+    base_info: buildBaseInfo(),
+  }
+  return apiPost<Record<string, unknown>>(baseUrl, '/ilink/bot/sendmessage', body, token, 15_000)
 }
