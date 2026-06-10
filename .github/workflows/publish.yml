@@ -32,6 +32,8 @@ jobs:
           echo "✅ Version verified: $PKG_VERSION"
 
       - run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
