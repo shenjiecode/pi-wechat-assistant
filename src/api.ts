@@ -46,17 +46,17 @@ function buildBaseInfo(): BaseInfo {
   return { channel_version: CHANNEL_VERSION }
 }
 
-function randomWechatUin(): string {
+const WECHAT_UIN = (() => {
   const value = randomBytes(4).readUInt32BE(0)
   return Buffer.from(String(value), 'utf8').toString('base64')
-}
+})()
 
 function buildHeaders(token: string): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     AuthorizationType: 'ilink_bot_token',
     Authorization: `Bearer ${token}`,
-    'X-WECHAT-UIN': randomWechatUin(),
+    'X-WECHAT-UIN': WECHAT_UIN,
   }
 }
 

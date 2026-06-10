@@ -201,11 +201,11 @@ export interface IncomingMessage {
   userId: string
   text: string
   type: IncomingMessageType
-  imageUrl?: string  // 图片消息的 URL
-  imageAesKey?: string  // 图片解密密钥
-  fileEncryptParam?: string  // 文件 CDN 下载参数 (encrypt_query_param)
-  fileAesKey?: string  // 文件 AES 解密密钥 (base64)
-  fileName?: string  // 原始文件名
+  /** 图片 URL 列表（一条微信消息可能有多张图片） */
+  imageUrls: Array<{ url: string; aesKey?: string }>
+  fileEncryptParam?: string
+  fileAesKey?: string
+  fileName?: string
   raw: WeixinMessage
   contextToken: string
   timestamp: Date

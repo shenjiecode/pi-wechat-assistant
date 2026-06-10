@@ -1,6 +1,6 @@
 {
   "name": "pi-wechat-assistant",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "type": "module",
   "description": "微信作为 pi TUI 的移动端分身 — 通过微信远程与 pi 交互",
   "main": "index.ts",
@@ -27,17 +27,20 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "preversion": "npm run typecheck && npm test",
     "prepack": "npm run typecheck"
   },
   "engines": {
     "node": ">=20.3.0"
   },
   "files": [
-    "*.ts",
+    "index.ts",
+    "src",
     "LICENSE",
     "README.md",
-    "tsconfig.json"
+    "CHANGELOG.md"
   ],
   "pi": {
     "extensions": [
@@ -61,7 +64,8 @@
     "@mariozechner/pi-coding-agent": "*",
     "@types/node": "^22.10.5",
     "@types/qrcode-terminal": "^0.12.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
   },
   "dependencies": {
     "@sinclair/typebox": "^0.34.49",
