@@ -8,6 +8,7 @@ import {
   acquireLock,
   clearCredentials,
   clearContextTokens,
+  clearTransportState,
   getCredentialsPath,
   getQrCode,
   loadConfig,
@@ -57,8 +58,11 @@ async function cmdLogin(args: string, ctx: Ctx, deps: CommandDeps): Promise<void
   }
   if (deps.isRunning()) await deps.stopBridge({ releaseLock: true })
 
-  // 强制重新登录时清除旧的 context tokens（旧 session 的 token 已无效）
-  if (force) await clearContextTokens()
+  // 强制重新登录时清除旧会话状态（context token 和长轮询游标均不应跨凭证复用）。
+  if (force) {
+    await clearContextTokens()
+    await clearTransportState()
+  }
 
   let currentBaseUrl: string | undefined
 
@@ -162,6 +166,7 @@ async function cmdLogout(_args: string, ctx: Ctx, deps: CommandDeps): Promise<vo
   await deps.disposeClient()
   await clearCredentials()
   await clearContextTokens()
+  await clearTransportState()
   deps.setClient(null)
   deps.queue.lastWechatUser = null
   deps.notify(`已清除微信凭证: ${getCredentialsPath()}`, 'info')

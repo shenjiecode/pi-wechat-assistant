@@ -6,6 +6,7 @@ import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { DEFAULT_BASE_URL, fetchQrCode, getQrCodeStatus, type QrStatusResponse } from './api.js'
+import { MAX_RECENT_MESSAGE_IDS, recordProcessedMessageId } from './security.js'
 import type { Credentials } from './types.js'
 
 // --- 路径 ---
@@ -15,6 +16,7 @@ const CREDS_FILE = path.join(STATE_DIR, 'credentials.json')
 const CONFIG_FILE = path.join(STATE_DIR, 'config.json')
 const LOCK_FILE = path.join(STATE_DIR, 'session.lock')
 const CONTEXT_TOKENS_FILE = path.join(STATE_DIR, 'context-tokens.json')
+const TRANSPORT_STATE_FILE = path.join(STATE_DIR, 'transport-state.json')
 
 export function getStateDir(): string {
   return STATE_DIR
@@ -42,6 +44,8 @@ async function readJsonFile<T>(filePath: string): Promise<T | null> {
 async function writeJsonFile(filePath: string, data: unknown): Promise<void> {
   await ensureStateDir()
   await fs.writeFile(filePath, JSON.stringify(data, null, 2), { mode: 0o600 })
+  // writeFile 的 mode 不会修改已有文件；明确收紧已有状态文件权限。
+  await fs.chmod(filePath, 0o600)
 }
 
 async function deleteFile(filePath: string): Promise<void> {
@@ -68,6 +72,31 @@ export async function clearCredentials(): Promise<void> {
 
 export async function clearContextTokens(): Promise<void> {
   await deleteFile(CONTEXT_TOKENS_FILE)
+}
+
+// --- iLink 长轮询传输状态 ---
+
+export interface TransportState {
+  cursor: string
+  processedMessageIds: string[]
+}
+
+export async function loadTransportState(): Promise<TransportState> {
+  const data = await readJsonFile<Partial<TransportState>>(TRANSPORT_STATE_FILE)
+  const ids = Array.isArray(data?.processedMessageIds)
+    ? data.processedMessageIds.filter((id): id is string => typeof id === 'string').slice(-MAX_RECENT_MESSAGE_IDS)
+    : []
+  return { cursor: typeof data?.cursor === 'string' ? data.cursor : '', processedMessageIds: ids }
+}
+
+export async function saveTransportState(state: TransportState): Promise<void> {
+  let ids: string[] = []
+  for (const id of state.processedMessageIds) ids = recordProcessedMessageId(ids, id)
+  await writeJsonFile(TRANSPORT_STATE_FILE, { cursor: state.cursor, processedMessageIds: ids })
+}
+
+export async function clearTransportState(): Promise<void> {
+  await deleteFile(TRANSPORT_STATE_FILE)
 }
 
 // --- 配置 ---

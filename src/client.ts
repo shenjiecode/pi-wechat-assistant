@@ -22,7 +22,15 @@ import {
   loadContextTokens,
   saveContextTokensThrottled,
   flushContextTokens,
+  loadTransportState,
+  saveTransportState,
 } from './auth.js'
+import {
+  isAuthorizedWeChatSender,
+  isDuplicateMessageId,
+  MAX_RECENT_MESSAGE_IDS,
+  recordProcessedMessageId,
+} from './security.js'
 import {
   CDN_BASE,
   STREAM_ENCRYPTION_THRESHOLD,
@@ -128,6 +136,8 @@ export class WeixinClient {
   private readonly token: string
   private baseUrl: string
   private cursor = ''
+  private readonly processedMessageIds = new Set<string>()
+  private processedMessageIdOrder: string[] = []
   private readonly typingTickets = new Map<string, string>()
   private readonly contextTokens = new Map<string, string>()
   private _lastActiveUserId: string | null = null
@@ -147,10 +157,15 @@ export class WeixinClient {
   }
 
   private async _init(): Promise<void> {
-    const persisted = await loadContextTokens()
-    this._lastActiveUserId = persisted.lastUserId
-    for (const [userId, token] of Object.entries(persisted.tokens)) {
-      this.contextTokens.set(userId, token)
+    const [persisted, transport] = await Promise.all([loadContextTokens(), loadTransportState()])
+    // Context token 只允许属于当前扫码凭证绑定用户，避免旧凭证残留跨用户复用。
+    const token = persisted.tokens[this.userId]
+    if (token) this.contextTokens.set(this.userId, token)
+    this._lastActiveUserId = persisted.lastUserId === this.userId ? this.userId : null
+    this.cursor = transport.cursor
+    for (const id of transport.processedMessageIds) {
+      this.processedMessageIds.add(id)
+      this.processedMessageIdOrder.push(id)
     }
   }
 
@@ -190,10 +205,22 @@ export class WeixinClient {
     const incoming: IncomingMessage[] = []
 
     for (const raw of response.msgs ?? []) {
+      if (raw.message_type !== 1) continue
+      if (!isAuthorizedWeChatSender(raw.from_user_id, this.userId)) {
+        debugLog(`丢弃未授权微信消息: from=${raw.from_user_id ?? '(empty)'}`)
+        continue
+      }
+      const messageId = String(raw.message_id ?? '')
+      if (isDuplicateMessageId(this.processedMessageIds, messageId)) {
+        debugLog(`跳过重复微信消息: id=${messageId}`)
+        continue
+      }
+      this.rememberProcessedMessageId(messageId)
       this.rememberContext(raw)
       const normalized = this.normalizeIncomingMessage(raw)
       if (normalized) incoming.push(normalized)
     }
+    await saveTransportState({ cursor: this.cursor, processedMessageIds: this.processedMessageIdOrder })
     return incoming
   }
 
@@ -259,12 +286,23 @@ export class WeixinClient {
   // --- 上下文管理 ---
 
   rememberContext(raw: { from_user_id?: string; to_user_id?: string; context_token?: string; message_type?: number }): void {
-    const userId = raw.message_type === 1 ? raw.from_user_id : raw.to_user_id
-    if (userId && raw.context_token) {
-      this.contextTokens.set(userId, raw.context_token)
-      this._lastActiveUserId = userId
+    if (raw.message_type === 1 && isAuthorizedWeChatSender(raw.from_user_id, this.userId) && raw.context_token) {
+      this.contextTokens.set(this.userId, raw.context_token)
+      this._lastActiveUserId = this.userId
       this._contextTokensDirty = true
       this._schedulePersist()
+    }
+  }
+
+  private rememberProcessedMessageId(messageId: string): void {
+    if (!messageId) return
+    this.processedMessageIdOrder = recordProcessedMessageId(this.processedMessageIdOrder, messageId)
+    this.processedMessageIds.clear()
+    for (const id of this.processedMessageIdOrder) this.processedMessageIds.add(id)
+    // 类型层面同时固定容量，避免未来修改 record 函数时无界增长。
+    while (this.processedMessageIdOrder.length > MAX_RECENT_MESSAGE_IDS) {
+      const removed = this.processedMessageIdOrder.shift()
+      if (removed) this.processedMessageIds.delete(removed)
     }
   }
 

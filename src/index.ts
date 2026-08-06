@@ -2,7 +2,7 @@
 // pi-wechat-assistant — 微信作为 pi TUI 的移动端分身
 // ============================================================================
 
-import { existsSync, statSync } from 'node:fs'
+import { statSync } from 'node:fs'
 import * as path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { Type } from '@sinclair/typebox'
@@ -15,7 +15,8 @@ import { splitAndFilterMarkdown } from './message.js'
 import { MessageQueue } from './queue.js'
 import { handleRemoteCommand, type RemoteCommandDeps } from './remote-commands.js'
 import { registerCommands, type CommandDeps } from './commands.js'
-import { ok, fail, formatError, isAbortError, extractAllAssistantReplies, extractTextFromMessageContent } from './utils.js'
+import { ok, fail, formatError, isAbortError } from './utils.js'
+import { getAssistantTextFromMessageEnd, isAuthorizedWeChatSender, validateProjectFilePath } from './security.js'
 import {
   POLL_RETRY_BASE_MS,
   POLL_RETRY_MAX_MS,
@@ -36,26 +37,14 @@ class TurnContext {
   wechatConversationActive = false
   targetUser: string | null = null
   sentCount = 0
-  messages: Array<{ role?: string; content?: unknown }> | null = null
   ended = false
 
   reset(): void {
     this.wechatConversationActive = false
     this.targetUser = null
     this.sentCount = 0
-    this.messages = null
     this.ended = false
   }
-}
-
-// ============================================================================
-// 路径沙箱校验
-// ============================================================================
-
-function isPathInCwd(targetPath: string, cwd: string): boolean {
-  const resolved = path.resolve(targetPath)
-  const resolvedCwd = path.resolve(cwd)
-  return resolved.startsWith(resolvedCwd + path.sep) || resolved === resolvedCwd
 }
 
 // ============================================================================
@@ -71,29 +60,20 @@ type ToolGuardResult = {
   cwd: string
 }
 
-function guardSendToWechat(
+async function guardSendToWechat(
   client: WeixinClient | null,
   running: boolean,
   lastWechatUser: { userId: string } | null,
   filePath: string,
   latestCtx: Ctx | null,
-): ToolGuardResult {
+): Promise<ToolGuardResult> {
   if (!client) return { allowed: false, error: fail('微信未登录，请先在 TUI 执行 /wechat login 和 /wechat start') }
   if (!running) return { allowed: false, error: fail('微信桥接未启动，请先在 TUI 执行 /wechat start') }
   if (!lastWechatUser) return { allowed: false, error: fail('尚未收到微信用户消息，无法获取 context_token。请先让微信用户发送一条消息。') }
 
-  const cwd = latestCtx?.cwd ?? process.cwd()
-  const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath)
-
-  if (!isPathInCwd(resolvedPath, cwd)) {
-    return {
-      allowed: false,
-      error: fail(`安全限制：只能发送项目目录内的文件。\n路径: ${resolvedPath}\n项目: ${path.resolve(cwd)}`),
-    }
-  }
-  if (!existsSync(resolvedPath)) return { allowed: false, error: fail(`文件不存在: ${resolvedPath}`) }
-
-  return { allowed: true, resolvedPath, cwd }
+  const result = await validateProjectFilePath(filePath, latestCtx?.cwd ?? process.cwd())
+  if (!result.allowed) return { allowed: false, error: fail(result.reason) }
+  return result
 }
 
 function guardFileSize(resolvedPath: string): ReturnType<typeof fail> | null {
@@ -255,12 +235,16 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   // --- 单条消息处理 ---
 
   async function handleIncomingMessage(message: IncomingMessage, activeClient: WeixinClient): Promise<void> {
+    // 客户端已有同样的检查；这里保留边界防御，确保未来调用路径也不会绕过授权。
+    if (!isAuthorizedWeChatSender(message.raw.from_user_id, activeClient.userId)) {
+      log(`丢弃未授权微信消息: from=${message.raw.from_user_id || '(empty)'}`)
+      return
+    }
     log(`收到消息: type=${message.type}, text=${message.text?.slice(0, 50)}, images=${message.imageUrls.length}`)
 
     if (UNSUPPORTED_TYPES.has(message.type)) {
       const reply = UNSUPPORTED_REPLY[message.type] ?? UNSUPPORTED_REPLY['unknown']
       try {
-        activeClient.rememberContext(message.raw)
         await activeClient.sendText(message.userId, reply)
       } catch (err) {
         log(`回复不支持类型消息失败: ${formatError(err)}`)
@@ -269,7 +253,6 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     }
 
     if (message.text.startsWith('/')) {
-      activeClient.rememberContext(message.raw)
       const handled = await handleRemoteCommand(message.text, message.userId, activeClient, remoteCommandDeps)
       if (handled) return
     }
@@ -330,7 +313,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       fileName: Type.Optional(Type.String({ description: '在微信中显示的文件名（可选，默认使用原文件名）' })),
     }),
     async execute(_toolCallId, params, _signal) {
-      const guard = guardSendToWechat(client, running, queue.lastWechatUser, params.filePath, latestCtx)
+      const guard = await guardSendToWechat(client, running, queue.lastWechatUser, params.filePath, latestCtx)
       if (!guard.allowed) return guard.error
       const sizeError = guardFileSize(guard.resolvedPath)
       if (sizeError) return sizeError
@@ -361,7 +344,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       imagePath: Type.String({ description: '要发送的图片路径（项目目录内的绝对路径或相对路径，支持 png/jpg/gif/webp）' }),
     }),
     async execute(_toolCallId, params, _signal) {
-      const guard = guardSendToWechat(client, running, queue.lastWechatUser, params.imagePath, latestCtx)
+      const guard = await guardSendToWechat(client, running, queue.lastWechatUser, params.imagePath, latestCtx)
       if (!guard.allowed) return guard.error
       const sizeError = guardFileSize(guard.resolvedPath)
       if (sizeError) return sizeError
@@ -433,7 +416,6 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     latestCtx = ctx
     agentIdle = false
     turn.sentCount = 0
-    turn.messages = null
     turn.ended = false
 
     if (queue.pendingInjection) {
@@ -459,7 +441,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       return
     }
 
-    const text = extractTextFromMessageContent(event.message.content)
+    const text = getAssistantTextFromMessageEnd(event.message)
     if (!text) {
       log(`[MSG-END-SKIP] no text content (likely toolCall only)`)
       return
@@ -480,34 +462,13 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     }
   })
 
-  // agent 结束 → 补发遗漏 + 收尾
+  // agent 结束 → 仅收尾。回复只能在本 turn 的 message_end 中发送，
+  // 绝不回扫 event.messages，避免恢复 session 后重发历史消息。
   pi.on('agent_end', async (event, ctx) => {
     latestCtx = ctx
     agentIdle = true
     turn.ended = true
-    turn.messages = event.messages as Array<{ role?: string; content?: unknown }>
-
-    const msgCount = turn.messages.length
-    const assistantMsgs = turn.messages.filter(m => m?.role === 'assistant').length
-    log(`[AGENT-END] turn#${turn.seq} source=${turn.wechatConversationActive ? 'WECHAT' : 'TUI'} targetUser=${turn.targetUser} messages=${msgCount} assistant=${assistantMsgs} sentCount=${turn.sentCount}`)
-
-    const allReplies = extractAllAssistantReplies(turn.messages)
-    const newReplies = allReplies.slice(turn.sentCount)
-    log(`[AGENT-END-REPLIES] all=${allReplies.length} sent=${turn.sentCount} new=${newReplies.length}`)
-
-    if (turn.wechatConversationActive && newReplies.length > 0 && client && turn.targetUser) {
-      try {
-        await queue.sendRepliesToWechat(newReplies, turn.targetUser)
-        log(`[AGENT-END-DONE] sent ${newReplies.length} remaining replies`)
-      } catch (err) {
-        log(`[AGENT-END-ERROR] ${formatError(err)}`)
-        notify(`发送微信回复失败: ${formatError(err)}`, 'error')
-      }
-    } else if (allReplies.length === 0) {
-      log(`[AGENT-END-NOREPLY] no assistant text`)
-    } else {
-      log(`[AGENT-END-SAFE] all replies already sent incrementally`)
-    }
+    log(`[AGENT-END] turn#${turn.seq} source=${turn.wechatConversationActive ? 'WECHAT' : 'TUI'} targetUser=${turn.targetUser} messageEndSent=${turn.sentCount}; no history replay`)
 
     if (queue.activeRequest) {
       await client?.stopTyping(queue.activeRequest.userId).catch(() => {})

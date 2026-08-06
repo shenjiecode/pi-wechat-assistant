@@ -96,7 +96,7 @@ Send text, voice, or images on WeChat to chat normally. Additional commands:
 | `/session` | Show session details |
 | `/help` | Show help |
 
-Advanced: `/thinking`, `/tools`, `/compact`.
+Advanced: `/thinking`, `/compact`. `/tools` is disabled for WeChat by default; it can only be enabled on a local Ubuntu host with `PI_WECHAT_ALLOW_REMOTE_TOOLS=1`.
 
 ## Supported Message Types
 
@@ -119,6 +119,7 @@ Advanced: `/thinking`, `/tools`, `/compact`.
 | `PI_WECHAT_DEBUG_FILE` | Debug log file path | `~/.pi/agent/wechat-assistant/debug.log` |
 | `PI_WECHAT_IMAGE_BATCH_WAIT_MS` | Batch wait time for images | `8000` |
 | `PI_WECHAT_IMAGE_MAX_BYTES` | Per-image size limit | `52428800` (50 MB) |
+| `PI_WECHAT_ALLOW_REMOTE_TOOLS` | Enable WeChat `/tools` only on local Ubuntu | Disabled |
 
 ### Config Files
 
@@ -126,6 +127,7 @@ Advanced: `/thinking`, `/tools`, `/compact`.
 ~/.pi/agent/wechat-assistant/
 ├── credentials.json   # Login credentials (mode 600)
 ├── config.json        # Auto-start, image limits
+├── transport-state.json # iLink cursor and last 500 processed message IDs (mode 600)
 └── session.lock       # Exclusive lock file
 ```
 
@@ -148,8 +150,16 @@ WeChat  ⇄  pi TUI session  ⇄  AI model + tools
 - WeChat messages are fetched via iLink Bot API long polling
 - Incoming messages are injected into the active pi session via `pi.sendUserMessage()`
 - When you type in TUI, a preview is sent to WeChat
-- AI replies are delivered incrementally (per `message_end`) and finalized on `agent_end`
+- AI replies are delivered only from assistant text emitted in the current turn's `message_end`
 - Only the TUI session that runs `/wechat start` holds the connection
+
+## Security boundaries
+
+- Only the WeChat user ID embedded in the QR-login credential is accepted. Messages from every other ID are dropped before a context token is stored, a queue entry is created, or a reply is sent.
+- The iLink cursor and the latest 500 processed message IDs are persisted in `transport-state.json`; a restart will not inject those messages again. `/wechat login --force` and `/wechat logout` reset this state.
+- Replies are sent only from assistant text emitted in the current turn's `message_end`; restored session history is never replayed to WeChat.
+- `send_file_to_wechat` and `send_image_to_wechat` accept only real, ordinary files inside the real project directory. Symbolic links are rejected.
+- WeChat `/tools` is disabled by default. It requires `PI_WECHAT_ALLOW_REMOTE_TOOLS=1` on Ubuntu to opt in.
 
 ## FAQ
 
@@ -262,7 +272,7 @@ pi install git:github.com/shenjiecode/pi-wechat-assistant
 | `/session` | 查看会话详情 |
 | `/help` | 显示帮助 |
 
-高级命令：`/thinking`、`/tools`、`/compact`。
+高级命令：`/thinking`、`/compact`。微信端 `/tools` 默认禁用；仅 Ubuntu 本机设置 `PI_WECHAT_ALLOW_REMOTE_TOOLS=1` 后才可启用。
 
 ## 支持的消息类型
 
@@ -285,6 +295,7 @@ pi install git:github.com/shenjiecode/pi-wechat-assistant
 | `PI_WECHAT_DEBUG_FILE` | 调试日志路径 | `~/.pi/agent/wechat-assistant/debug.log` |
 | `PI_WECHAT_IMAGE_BATCH_WAIT_MS` | 图片批量等待时间 | `8000` |
 | `PI_WECHAT_IMAGE_MAX_BYTES` | 单张图片大小上限 | `52428800`（50 MB） |
+| `PI_WECHAT_ALLOW_REMOTE_TOOLS` | 仅 Ubuntu 本机启用微信 `/tools` | 默认禁用 |
 
 ### 配置文件
 
@@ -292,6 +303,7 @@ pi install git:github.com/shenjiecode/pi-wechat-assistant
 ~/.pi/agent/wechat-assistant/
 ├── credentials.json   # 登录凭证（权限 600）
 ├── config.json        # 自动启动、图片限制
+├── transport-state.json # iLink 游标及最近 500 条消息 ID（权限 600）
 └── session.lock       # 排他锁文件
 ```
 
@@ -304,8 +316,16 @@ pi install git:github.com/shenjiecode/pi-wechat-assistant
 - 微信消息通过 iLink Bot API 长轮询获取
 - 收到的消息通过 `pi.sendUserMessage()` 注入当前 pi 会话
 - TUI 输入时微信端会收到预览
-- AI 回复增量发送（每条 `message_end` 即发），`agent_end` 时补发遗漏
+- AI 回复仅从当前 turn 的 `message_end` 产生的 assistant 文本发送
 - 只有执行 `/wechat start` 的 TUI 会话持有连接
+
+## 安全边界
+
+- 仅接受扫码凭证中绑定的微信用户 ID；其他 ID 的消息不会保存 context token、入队、注入 Agent 或自动回复。
+- iLink 游标和最近 500 条已处理 message ID 保存于 `transport-state.json`，重启后不会重复注入；`/wechat login --force` 与 `/wechat logout` 会清除它。
+- 仅转发当前 turn 的 `message_end` 实际产生的 assistant 文本，不会重发恢复 session 中的历史回复。
+- `send_file_to_wechat` 与 `send_image_to_wechat` 仅允许真实项目目录内的普通文件，符号链接一律拒绝。
+- 微信端 `/tools` 默认禁用，只有 Ubuntu 本机设置 `PI_WECHAT_ALLOW_REMOTE_TOOLS=1` 才能启用。
 
 ## 常见问题
 

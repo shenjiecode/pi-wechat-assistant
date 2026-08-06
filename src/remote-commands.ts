@@ -7,6 +7,7 @@ import { debugLog } from './logger.js'
 import { formatError } from './utils.js'
 import { getImageMaxBytes, getImageBatchWaitMs } from './queue.js'
 import { WeixinClient } from './client.js'
+import { areRemoteToolsAllowed } from './security.js'
 
 type Ctx = ExtensionContext | ExtensionCommandContext
 
@@ -65,6 +66,9 @@ const commands: Record<string, RemoteCommandFn> = {
   },
 
   async tools(args, _userId, _client, deps) {
+    if (!areRemoteToolsAllowed()) {
+      return '🔒 出于安全考虑，微信端 /tools 默认禁用，不会更改本地工具权限。仅可在 Ubuntu 本机设置 PI_WECHAT_ALLOW_REMOTE_TOOLS=1 后启用。'
+    }
     if (!args) {
       const active = deps.pi.getActiveTools()
       const all = deps.pi.getAllTools().map(t => t.name)
@@ -252,7 +256,7 @@ const commands: Record<string, RemoteCommandFn> = {
       '/config          查看图片相关配置',
       '/help            显示帮助',
       '',
-      '高级: /thinking, /tools, /compact',
+      '高级: /thinking, /compact；/tools 默认禁用（仅 Ubuntu 本机设置 PI_WECHAT_ALLOW_REMOTE_TOOLS=1 后启用）',
       '直接发文字、语音、图片、文件 = 正常对话',
     ].join('\n')
   },
