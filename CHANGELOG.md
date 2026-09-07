@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 持久化长轮询游标和近期消息 ID，防止重启后重复处理历史消息（感谢 midmirror）
 - 移除 `agent_end` 历史回复补发，防止恢复会话后重复发送全部旧回复（感谢 midmirror）
 - 强制重新登录或退出时清理旧凭证对应的游标、去重和上下文状态
+- 当智能体异常停止且未产出可发送回复时，自动向微信发送失败通知
 
 ### Changed
 - CI 和发布工作流升级 GitHub Actions 运行时，并改用 `npm ci`

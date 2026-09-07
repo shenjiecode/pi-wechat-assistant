@@ -109,6 +109,19 @@ function guardFileSize(resolvedPath: string): ReturnType<typeof fail> | null {
   }
 }
 
+const AGENT_FAILURE_TEXT_RE = /(?:^|\s)(?:error|failed|failure|exception|aborted?|timeout|报错|异常|失败|中断|超时)(?:\s|$|[:：])/i
+
+function pickAgentFailureText(messages: Array<{ role?: string; content?: unknown }>): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (!message || message.role === 'user') continue
+    const text = extractTextFromMessageContent(message.content)
+    if (!text) continue
+    if (AGENT_FAILURE_TEXT_RE.test(text)) return text
+  }
+  return null
+}
+
 // ============================================================================
 // Extension
 // ============================================================================
@@ -497,6 +510,18 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     const msgCount = turn.messages.length
     const assistantMsgs = turn.messages.filter(m => m?.role === 'assistant').length
     log(`[AGENT-END] turn#${turn.seq} source=${turn.wechatConversationActive ? 'WECHAT' : 'TUI'} targetUser=${turn.targetUser} messages=${msgCount} assistant=${assistantMsgs} sentCount=${turn.sentCount}`)
+
+    const failureText = pickAgentFailureText(turn.messages)
+    const noAssistantReply = assistantMsgs === 0
+    if (running && client && turn.wechatConversationActive && turn.targetUser && turn.sentCount === 0 && (failureText || noAssistantReply)) {
+      const summary = failureText ? failureText.slice(0, 180) : null
+      const notifyText = summary
+        ? `⚠️ 智能体执行报错并已停止：${summary}`
+        : '⚠️ 智能体执行异常并已停止，本次未产出可发送回复。请在 TUI 查看报错后重试。'
+      await client.sendText(turn.targetUser, notifyText).catch(err => {
+        log(`[AGENT-END-FAIL-NOTIFY-ERROR] ${formatError(err)}`)
+      })
+    }
 
     if (queue.activeRequest) {
       await client?.stopTyping(queue.activeRequest.userId).catch(() => {})
