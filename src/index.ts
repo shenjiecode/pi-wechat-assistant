@@ -412,13 +412,37 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     }
   })
 
-  // 用户在 TUI 主动输入非命令内容 → 打断微信对话活跃状态
-  pi.on('input', (event, ctx) => {
+  // Pi → 微信：同步本地用户输入。extension 来源是微信注入，必须跳过以避免回声。
+  pi.on('input', async (event, ctx) => {
     latestCtx = ctx
-    if (event.source === 'extension') return
+    if (event.source === 'extension') {
+      log(`[INPUT-SKIP] source=extension`)
+      return
+    }
+
     const text = event.text?.trim()
-    if (!text || text.startsWith('/')) return
+    if (!text || text.startsWith('/')) {
+      log(`[INPUT-SKIP] empty or command`)
+      return
+    }
+
     turn.wechatConversationActive = false
+
+    const targetUserId = queue.lastWechatUser?.userId
+    if (!running || !client || !targetUserId) {
+      log(`[INPUT-SKIP] running=${running} client=${!!client} targetUser=${targetUserId ?? 'null'}`)
+      return
+    }
+
+    const imageNote = event.images?.length ? `\n[附带 ${event.images.length} 张图片]` : ''
+    const chunks = splitAndFilterMarkdown(`💻 Pi 发送：${text}${imageNote}`)
+    log(`[INPUT-SYNC] source=${event.source} userId=${targetUserId} textLen=${text.length} images=${event.images?.length ?? 0} chunks=${chunks.length}`)
+
+    try {
+      for (const chunk of chunks) await client.sendText(targetUserId, chunk)
+    } catch (err) {
+      log(`[INPUT-SYNC-ERROR] ${formatError(err)}`)
+    }
   })
 
   // 系统提示词注入
@@ -453,12 +477,13 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     }
   })
 
-  // 增量发送（仅微信触发的 turn）
+  // Pi → 微信：所有新完成的 assistant 消息都同步。
+  // message_end 只针对本次运行触发，不会在恢复会话时重放历史消息。
   pi.on('message_end', async (event, ctx) => {
     if (event.message.role !== 'assistant') return
-    if (!running || !client || !turn.wechatConversationActive) return
+    if (!running || !client) return
 
-    const targetUserId = turn.targetUser
+    const targetUserId = turn.targetUser ?? queue.lastWechatUser?.userId
     if (!targetUserId) {
       log(`[MSG-END-SKIP] no target user`)
       return
@@ -496,7 +521,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
 
     const msgCount = turn.messages.length
     const assistantMsgs = turn.messages.filter(m => m?.role === 'assistant').length
-    log(`[AGENT-END] turn#${turn.seq} source=${turn.wechatConversationActive ? 'WECHAT' : 'TUI'} targetUser=${turn.targetUser} messages=${msgCount} assistant=${assistantMsgs} sentCount=${turn.sentCount}`)
+    log(`[AGENT-END] turn#${turn.seq} source=${turn.wechatConversationActive ? 'WECHAT' : 'PI'} targetUser=${turn.targetUser} messages=${msgCount} assistant=${assistantMsgs} sentCount=${turn.sentCount}`)
 
     if (queue.activeRequest) {
       await client?.stopTyping(queue.activeRequest.userId).catch(() => {})

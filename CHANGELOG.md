@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- 恢复真正的双向同步：Pi/TUI 输入会镜像到微信，Pi 发起对话产生的 assistant 结论也会发送到微信
+- 微信注入 Pi 的消息按 `event.source === 'extension'` 排除回传，避免消息回声
+- Pi 中附带图片的输入会在微信镜像中显示图片数量提示
+
+### Tests
+- 新增微信 → Pi、Pi 输入 → 微信、Pi assistant 回复 → 微信以及防回声的回归测试
+
 ## [0.3.1] - 2026-09-04
 
 ### Security
