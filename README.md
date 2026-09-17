@@ -153,9 +153,10 @@ WeChat  ⇄  pi TUI session  ⇄  AI model + tools
 
 - WeChat messages are fetched via iLink Bot API long polling
 - Only the WeChat user ID bound during QR login is accepted; messages from other users are ignored
-- Incoming messages are injected into the active pi session via `pi.sendUserMessage()`
-- When you type in TUI, a preview is sent to WeChat
-- AI replies are delivered incrementally (per `message_end`); the `agent_end` catch-up replay was removed to prevent duplicate historical messages after session restore
+- Incoming messages are injected into the active pi session via `pi.sendUserMessage()` and appear in the Pi transcript
+- When you type in TUI, the full input is mirrored to WeChat (long input is split into safe chunks)
+- AI replies are delivered to WeChat incrementally (per `message_end`) whether the turn started in WeChat or Pi
+- Extension-injected WeChat input is never mirrored back, preventing echo loops; the `agent_end` catch-up replay remains disabled to prevent historical replay after session restore
 - Only the TUI session that runs `/wechat start` holds the connection
 
 ## FAQ
@@ -316,9 +317,10 @@ pi install git:github.com/shenjiecode/pi-wechat-assistant
 
 - 微信消息通过 iLink Bot API 长轮询获取
 - 只接受扫码登录时绑定的微信用户，其他用户的消息会被忽略
-- 收到的消息通过 `pi.sendUserMessage()` 注入当前 pi 会话
-- TUI 输入时微信端会收到预览
-- AI 回复增量发送（每条 `message_end` 即发），不依赖 `agent_end` 补发（防止恢复会话后历史回复重发）
+- 收到的消息通过 `pi.sendUserMessage()` 注入当前 pi 会话，并显示在 Pi 对话记录中
+- Pi/TUI 输入会完整镜像到微信，长内容自动安全分段
+- 无论对话由微信还是 Pi 发起，AI 回复都会按 `message_end` 增量发送到微信
+- 微信注入消息不会反向回传，避免回声循环；同时不依赖 `agent_end` 补发，防止恢复会话后重发历史回复
 - 只有执行 `/wechat start` 的 TUI 会话持有连接
 
 ## 常见问题
