@@ -49,7 +49,8 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
-    "@mariozechner/pi-coding-agent": "*"
+    "@mariozechner/pi-coding-agent": "*",
+    "@sinclair/typebox": "*"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-coding-agent": {
@@ -62,13 +63,13 @@
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@mariozechner/pi-coding-agent": "*",
+    "@sinclair/typebox": "^0.34.49",
     "@types/node": "^22.10.5",
     "@types/qrcode-terminal": "^0.12.2",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   },
   "dependencies": {
-    "@sinclair/typebox": "^0.34.49",
     "qrcode-terminal": "^0.12.0"
   }
 }
