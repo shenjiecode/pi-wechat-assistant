@@ -2,14 +2,14 @@
 // pi-wechat-assistant — 微信作为 pi TUI 的移动端分身
 // ============================================================================
 
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import * as path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { Type } from '@sinclair/typebox'
 // @ts-ignore — @earendil-works is the current package, but the older package still carries TS declarations used for compatibility here
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from '@mariozechner/pi-coding-agent'
 import { SessionExpiredError, WeixinClient } from './client.js'
-import { acquireLock, releaseLock, loadCredentials, loadConfig } from './auth.js'
+import { acquireLock, releaseLock, loadCredentials, loadConfig, getStateDir } from './auth.js'
 import { debugLog, isDebugEnabled } from './logger.js'
 import { splitAndFilterMarkdown } from './message.js'
 import { MessageQueue } from './queue.js'
@@ -72,6 +72,34 @@ type ToolGuardResult = {
   cwd: string
 }
 
+/**
+ * 本进程 running=false 时，桥接可能正跑在**另一个** pi 进程里（例如 TUI 与 tmux 会话并存）。
+ * 这种情况直接读锁文件告知真正的持有者 —— 否则会把「本会话不是桥接进程」误报成「桥接未启动」。
+ * 返回 null 表示确认本机没有其它活着的桥接进程（调用方走原有的通用提示）。
+ */
+function describeBridgeInOtherProcess(): string | null {
+  try {
+    const lock = JSON.parse(readFileSync(path.join(getStateDir(), 'session.lock'), 'utf8')) as {
+      pid?: number
+      sessionId?: string
+    }
+    if (!lock?.pid || lock.pid === process.pid) return null
+    try {
+      process.kill(lock.pid, 0) // 仅探测进程是否存活，不发送信号
+    } catch {
+      return null
+    }
+    return (
+      `微信桥接运行在另一个 pi 进程（PID ${lock.pid}${lock.sessionId ? `，${lock.sessionId}` : ''}），本会话无法直接发送。\n` +
+      '请在那个会话里调用本工具，或把指令投递给它，例如：\n' +
+      '  tmux send-keys -t <目标会话> "用 send_image_to_wechat 工具把 <绝对路径> 发到微信"\n' +
+      '  tmux send-keys -t <目标会话> Enter'
+    )
+  } catch {
+    return null
+  }
+}
+
 function guardSendToWechat(
   client: WeixinClient | null,
   running: boolean,
@@ -79,8 +107,18 @@ function guardSendToWechat(
   filePath: string,
   latestCtx: Ctx | null,
 ): ToolGuardResult {
-  if (!client) return { allowed: false, error: fail('微信未登录，请先在 TUI 执行 /wechat login 和 /wechat start') }
-  if (!running) return { allowed: false, error: fail('微信桥接未启动，请先在 TUI 执行 /wechat start') }
+  if (!client || !running) {
+    const elsewhere = describeBridgeInOtherProcess()
+    if (elsewhere) return { allowed: false, error: fail(elsewhere) }
+    return {
+      allowed: false,
+      error: fail(
+        !client
+          ? '微信未登录，请先在 TUI 执行 /wechat login 和 /wechat start'
+          : '微信桥接未启动，请先在 TUI 执行 /wechat start',
+      ),
+    }
+  }
   if (!lastWechatUser) return { allowed: false, error: fail('尚未收到微信用户消息，无法获取 context_token。请先让微信用户发送一条消息。') }
 
   const cwd = latestCtx?.cwd ?? process.cwd()
