@@ -196,9 +196,9 @@ export class MessageQueue {
 
     // 纯图片 → 批处理 ack + 计时器
     if (hasImages) {
-      if (!this.imageBatchAckSent && client) {
+      if (!this.imageBatchAckSent && client && getConfigCache().sendAck !== false) {
         this.imageBatchAckSent = true
-        void client.sendText(message.userId, IMAGE_BATCH_ACK_TEXT).catch(err => log(`[IMAGE-ACK-FAIL] ${formatError(err)}`))
+        void client.sendText(message.userId, getConfigCache().imageBatchAckText?.trim() || IMAGE_BATCH_ACK_TEXT).catch(err => log(`[IMAGE-ACK-FAIL] ${formatError(err)}`))
       }
       this.restartBatchTimer('图片')
       return
@@ -416,9 +416,9 @@ export class MessageQueue {
       return
     }
 
-    if (!hadImageMessages) {
+    if (!hadImageMessages && getConfigCache().sendAck !== false) {
       try {
-        await client.sendText(first.userId, ACK_TEXT)
+        await client.sendText(first.userId, getConfigCache().ackText?.trim() || ACK_TEXT)
       } catch (err) {
         log(`发送回执失败: ${formatError(err)}`)
       }

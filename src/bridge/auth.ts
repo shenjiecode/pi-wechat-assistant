@@ -118,6 +118,11 @@ export async function clearContextTokens(): Promise<void> {
 
 export interface BridgeConfig {
   autoStart?: boolean
+  /** 收件回执通知，默认开启；兼容已有 sendAck: false 配置。 */
+  sendAck?: boolean
+  /** 自定义文字/图片收件回执；空白或未设置时使用默认文案。 */
+  ackText?: string
+  imageBatchAckText?: string
   /** 持锁接管方式：ask=弹窗确认（默认），auto=对支持协作交接的会话直接请求交接。 */
   handoff?: 'ask' | 'auto'
   /** 默认同步 TUI 输入和 AI 回复到微信；关闭后仅转发微信任务回复。 */

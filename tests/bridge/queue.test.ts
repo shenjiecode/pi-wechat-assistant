@@ -9,6 +9,7 @@ import { getConfigCache } from '../../src/bridge/auth.js'
 import { fetchFile, fetchImageAsBase64, saveFileToDisk } from '../../src/wechat/media.js'
 import { extractTextFromMessageContent } from '../../src/shared/utils.js'
 import { WECHAT_SOURCE_TAG } from '../../src/messaging/wechat-source.js'
+import { ACK_TEXT, IMAGE_BATCH_ACK_TEXT } from '../../src/shared/constants.js'
 
 // --- Mock getConfigCache 使配置读取可控 ---
 vi.mock('../../src/bridge/auth.js', () => ({
@@ -80,6 +81,57 @@ function makeMsg(overrides: Partial<IncomingMessage> = {}): IncomingMessage {
     ...overrides,
   }
 }
+
+describe('receipt notifications', () => {
+  it.each([undefined, true, false])('honors sendAck=%s for text without blocking submission', async sendAck => {
+    vi.mocked(getConfigCache).mockReturnValue({ sendAck, messageSourceTag: { enabled: false } })
+    const sendText = vi.fn().mockResolvedValue(undefined)
+    const { queue, sendUserMessage } = makeQueue({ client: vi.fn(() => ({ sendText, startTyping: vi.fn().mockResolvedValue(undefined) })) })
+    queue.enqueue(makeMsg({ text: 'hello' }))
+    await vi.waitFor(() => expect(sendUserMessage).toHaveBeenCalledOnce())
+    if (sendAck === false) expect(sendText).not.toHaveBeenCalled()
+    else expect(sendText).toHaveBeenCalledWith('user_1', ACK_TEXT)
+  })
+
+  it.each([undefined, true, false])('honors sendAck=%s for image batches without blocking submission', async sendAck => {
+    vi.useFakeTimers()
+    vi.mocked(getConfigCache).mockReturnValue({ sendAck, imageBatchWaitMs: 20 })
+    vi.mocked(fetchImageAsBase64).mockResolvedValue({ data: 'image', mediaType: 'image/png' })
+    const sendText = vi.fn().mockResolvedValue(undefined)
+    const { queue, sendUserMessage } = makeQueue({ client: vi.fn(() => ({ sendText, startTyping: vi.fn().mockResolvedValue(undefined) })) })
+    for (let i = 0; i < 2; i++) queue.enqueue(makeMsg({ imageUrls: [{ url: 'https://example.com/image.png' }] }))
+    await vi.advanceTimersByTimeAsync(25)
+    expect(sendUserMessage).toHaveBeenCalledOnce()
+    if (sendAck === false) expect(sendText).not.toHaveBeenCalled()
+    else {
+      expect(sendText).toHaveBeenCalledOnce()
+      expect(sendText).toHaveBeenCalledWith('user_1', IMAGE_BATCH_ACK_TEXT)
+    }
+  })
+
+  it.each([['Custom receipt text', 'Custom image receipt'], ['  ', '  ']])('uses custom contents or default for blank values: %s', async (ackText, imageBatchAckText) => {
+    vi.mocked(getConfigCache).mockReturnValue({ ackText, imageBatchAckText })
+    const sendText = vi.fn().mockResolvedValue(undefined)
+    const { queue, sendUserMessage } = makeQueue({ client: vi.fn(() => ({ sendText, startTyping: vi.fn().mockResolvedValue(undefined) })) })
+    queue.enqueue(makeMsg({ text: 'hello' }))
+    await vi.waitFor(() => expect(sendUserMessage).toHaveBeenCalledOnce())
+    expect(sendText).toHaveBeenCalledWith('user_1', ackText.trim() || ACK_TEXT)
+    queue.enqueue(makeMsg({ imageUrls: [{ url: 'https://example.com/image.png' }] }))
+    expect(sendText).toHaveBeenCalledWith('user_1', imageBatchAckText.trim() || IMAGE_BATCH_ACK_TEXT)
+  })
+
+  it('keeps file-save confirmations and download errors when receipts are disabled', async () => {
+    vi.mocked(getConfigCache).mockReturnValue({ sendAck: false })
+    vi.mocked(fetchFile).mockResolvedValueOnce(Buffer.from('file')).mockResolvedValueOnce(null)
+    vi.mocked(saveFileToDisk).mockResolvedValue('C:/project/report.txt')
+    const sendText = vi.fn().mockResolvedValue(undefined)
+    const { queue } = makeQueue({ client: vi.fn(() => ({ sendText })) })
+    queue.enqueue(makeMsg({ fileEncryptParam: 'file', fileName: 'report.txt' }))
+    await vi.waitFor(() => expect(sendText).toHaveBeenCalledWith('user_1', expect.stringContaining('✅ 已保存:')))
+    queue.enqueue(makeMsg({ fileEncryptParam: 'file', fileName: 'failed.txt' }))
+    await vi.waitFor(() => expect(sendText).toHaveBeenCalledWith('user_1', '⚠️ 文件下载失败: failed.txt'))
+  })
+})
 
 describe('MessageQueue — enqueue', () => {
   it('enqueues text messages', () => {

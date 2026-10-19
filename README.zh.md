@@ -61,6 +61,7 @@ pi install git:github.com/shenjiecode/pi-wechat-assistant
 | `/wechat start` / `/wechat stop` | 启动 / 停止本会话的桥接 |
 | `/wechat status` | 查看运行状态、锁归属和发送结果 |
 | `/wechat config` | 配置窗口：常用开关、图片预设、回复模板 |
+| `/wechat config ack off` | 关闭收件回执通知；用 `on` 开启，也可在配置窗口自定义文字内容 |
 | `/wechat config bidirectional off` | 只回传微信任务回复；用 `on` 恢复双向同步 |
 | `/wechat prompt show` / `init` / `reload` | 查看 / 导出 / 重载回复模板 |
 | `/wechat login --force` | 登录凭据失效时重新扫码 |

@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.6.2] - 2026-10-20
+
+### English
+
+- Fix receipt notifications ignoring `sendAck: false` (issue #21). Text and image-batch receipts can now be enabled or disabled from the settings menu or `/wechat config ack on|off`.
+- Support separate custom text and image receipt messages through the settings menu, commands, or JSON configuration, with a reset to built-in defaults. AI replies, file-save results, and errors remain unaffected.
+
+### 中文
+
+- 修复收件回执忽略 `sendAck: false` 的问题（issue #21）；可在设置窗口或通过 `/wechat config ack on|off` 开关文字和图片批处理回执。
+- 支持通过设置窗口、命令或 JSON 分别自定义文字和图片回执，并恢复内置默认文案；不影响 AI 回复、文件保存结果和错误提示。
+
 ## [0.6.1] - 2026-10-15
 
 ### English

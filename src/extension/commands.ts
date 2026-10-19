@@ -20,7 +20,7 @@ import {
 import { WeixinClient, type ApiCallResult } from '../wechat/client.js'
 import { MessageQueue, getImageBatchWaitMs, getImageMaxBytes } from '../bridge/queue.js'
 import { renderQrCode, formatError } from '../shared/utils.js'
-import { QR_POLL_INTERVAL_MS, QR_MAX_REFRESH } from '../shared/constants.js'
+import { QR_POLL_INTERVAL_MS, QR_MAX_REFRESH, ACK_TEXT, IMAGE_BATCH_ACK_TEXT } from '../shared/constants.js'
 import type { WechatPrompt } from '../messaging/wechat-prompt.js'
 import { WECHAT_SOURCE_TAG } from '../messaging/wechat-source.js'
 import { describeBridgeLock } from '../bridge/bridge-lock.js'
@@ -273,6 +273,9 @@ async function applyConfigCommand(args: string, ctx: ExtensionCommandContext, de
   }
   if (!key || key === 'show') {
     deps.notify([
+      `收件回执通知: ${config.sendAck === false ? '已关闭' : '已开启（默认）'}`,
+      `文字回执: ${config.ackText?.trim() || ACK_TEXT}`,
+      `图片回执: ${config.imageBatchAckText?.trim() || IMAGE_BATCH_ACK_TEXT}`,
       `自动启动: ${config.autoStart ? '已开启' : '已关闭'}`,
       `持锁接管: ${config.handoff === 'auto' ? '自动（直接请求交接）' : '询问（默认）'}`,
       `双向同步: ${config.bidirectionalSync === true ? '已开启' : '已关闭（默认）'}`,
@@ -281,8 +284,24 @@ async function applyConfigCommand(args: string, ctx: ExtensionCommandContext, de
       `来源标识: ${config.messageSourceTag?.wechatTag?.trim() || WECHAT_SOURCE_TAG}`,
       `图片合并等待: ${getImageBatchWaitMs()}ms`,
       `图片上限: ${Math.round(getImageMaxBytes() / 1024 / 1024)}MB`,
-      '', '用法:', '/wechat config source on|off', '/wechat config bidirectional on|off', '/wechat config handoff ask|auto', '/wechat config image-wait 8000', '/wechat config image-max 50',
+      '', '用法:', '/wechat config ack on|off', '/wechat config ack-text [内容，留空恢复默认]', '/wechat config image-ack-text [内容，留空恢复默认]', '/wechat config source on|off', '/wechat config bidirectional on|off', '/wechat config handoff ask|auto', '/wechat config image-wait 8000', '/wechat config image-max 50',
     ].join('\n'), 'info')
+    return
+  }
+  if (key === 'ack') {
+    if (value !== 'on' && value !== 'off') { deps.notify('用法: /wechat config ack on|off', 'error'); return }
+    config.sendAck = value === 'on'
+    await saveConfig(config)
+    deps.notify(`收件回执通知已${config.sendAck ? '开启' : '关闭'}`, 'info')
+    return
+  }
+  if (key === 'ack-text' || key === 'image-ack-text') {
+    const text = args.trim().slice(key.length).trim()
+    const field = key === 'ack-text' ? 'ackText' : 'imageBatchAckText'
+    if (text) config[field] = text
+    else delete config[field]
+    await saveConfig(config)
+    deps.notify(text ? '回执内容已保存' : '回执内容已恢复默认', 'info')
     return
   }
   if (key === 'source') {
@@ -346,7 +365,7 @@ async function applyConfigCommand(args: string, ctx: ExtensionCommandContext, de
     return
   }
   if (key !== 'image-wait' && key !== 'image-max') {
-    deps.notify('未知配置项。支持: source, bidirectional, auto-start, handoff, remote-tools, image-wait, image-max', 'error')
+    deps.notify('未知配置项。支持: ack, ack-text, image-ack-text, source, bidirectional, auto-start, handoff, remote-tools, image-wait, image-max', 'error')
     return
   }
   const numeric = Number(value)
@@ -443,7 +462,7 @@ export function registerCommands(pi: ExtensionAPI, deps: CommandDeps): void {
         case 'stop': return cmdStop(restArgs, ctx, deps)
         case 'status': return cmdStatus(restArgs, ctx, deps)
         case 'prompt': return cmdPrompt(restArgs, ctx, deps)
-        case 'config': return cmdConfig(restArgs, ctx, deps)
+        case 'config': return cmdConfig(args.trim().slice(sub.length).trim(), ctx, deps)
         case 'logout': return cmdLogout(restArgs, ctx, deps)
         case 'autostart': return cmdAutostart(restArgs, ctx, deps)
         case 'remotetools': return cmdRemoteTools(restArgs, ctx, deps)

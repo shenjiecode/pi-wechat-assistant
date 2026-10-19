@@ -61,6 +61,7 @@ pi install git:github.com/shenjiecode/pi-wechat-assistant
 | `/wechat start` / `/wechat stop` | Start / stop this session’s bridge |
 | `/wechat status` | Inspect running state, lock ownership, and send results |
 | `/wechat config` | Settings dialogs: common toggles, image presets, reply templates |
+| `/wechat config ack off` | Disable receipt notifications; use `on` to enable. Customize text in the settings dialogs. |
 | `/wechat config bidirectional off` | Forward only WeChat-task replies; use `on` to restore two-way sync |
 | `/wechat prompt show` / `init` / `reload` | View / export / reload the reply template |
 | `/wechat login --force` | Scan again when login credentials expire |

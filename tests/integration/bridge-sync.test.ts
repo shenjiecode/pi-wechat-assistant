@@ -116,6 +116,51 @@ describe('bridge bidirectional sync and lifecycle', () => {
 
   const command = (args: string) => commands.wechat.handler(args, ctx)
 
+  it('toggles receipt notifications in the menu and preserves custom content', async () => {
+    state.config.ackText = 'Custom receipt'
+    ctx.ui.select.mockResolvedValueOnce('收件回执通知：开启 · 收到文字或图片时发送确认').mockResolvedValueOnce('关闭').mockResolvedValueOnce(undefined)
+    await command('config')
+    expect(state.config.sendAck).toBe(false)
+    expect(state.config.ackText).toBe('Custom receipt')
+    await command('config ack on')
+    expect(state.config.sendAck).toBe(true)
+    await command('config ack maybe')
+    expect(state.config.sendAck).toBe(true)
+    expect(ctx.ui.notify).toHaveBeenLastCalledWith('用法: /wechat config ack on|off', 'error')
+  })
+
+  it.each([['ack-text', 'ackText', '文字回执内容：自定义 / 恢复默认'], ['image-ack-text', 'imageBatchAckText', '图片回执内容：自定义 / 恢复默认']] as const)('edits, cancels and resets %s', async (key, field, label) => {
+    state.config.sendAck = false
+    await command(`config ${key} Hello world\n收到，正在处理`)
+    expect(state.config[field]).toBe('Hello world\n收到，正在处理')
+    ctx.ui.input = vi.fn().mockResolvedValueOnce(undefined)
+    ctx.ui.select.mockResolvedValueOnce(label).mockResolvedValueOnce(undefined)
+    await command('config')
+    expect(state.config[field]).toBe('Hello world\n收到，正在处理')
+    ctx.ui.input.mockResolvedValueOnce('菜单自定义内容')
+    ctx.ui.select.mockResolvedValueOnce(label).mockResolvedValueOnce(undefined)
+    await command('config')
+    expect(state.config[field]).toBe('菜单自定义内容')
+    await command('config show')
+    expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.stringContaining('菜单自定义内容'), 'info')
+    ctx.ui.input.mockResolvedValueOnce('   ')
+    ctx.ui.select.mockResolvedValueOnce(label).mockResolvedValueOnce(undefined)
+    await command('config')
+    expect(state.config[field]).toBeUndefined()
+    expect(state.config.sendAck).toBe(false)
+  })
+
+  it('preserves receipt settings if saving fails', async () => {
+    const { saveConfig } = await import('../../src/bridge/auth.js')
+    state.config = { sendAck: false, ackText: 'original' }
+    vi.mocked(saveConfig).mockRejectedValueOnce(new Error('disk full'))
+    await command('config ack on')
+    expect(state.config.sendAck).toBe(false)
+    vi.mocked(saveConfig).mockRejectedValueOnce(new Error('disk full'))
+    await command('config ack-text replacement')
+    expect(state.config.ackText).toBe('original')
+  })
+
   it('opens settings while stopped without registering tools or changing rules', async () => {
     ctx.ui.select.mockResolvedValueOnce(undefined)
     await command('config')
@@ -313,6 +358,22 @@ describe('bridge bidirectional sync and lifecycle', () => {
     await handlers.agent_settled({ aborted }, ctx)
   }
   const modern = () => { ctx.isProjectTrusted = () => ({}) }
+
+  it('honors a saved sendAck false while still delivering AI replies, then enables custom receipts live', async () => {
+    state.config.sendAck = false
+    await command('start')
+    state.client.sendText.mockClear()
+    await wechatInput('first', true)
+    expect(state.client.sendText).not.toHaveBeenCalled()
+    await reply('AI reply')
+    expect(state.client.sendText).toHaveBeenCalledWith('bound-user', 'AI reply')
+    await handlers.agent_end({ messages: [] }, ctx)
+    await command('config ack-text Custom receipt')
+    await command('config ack on')
+    state.client.sendText.mockClear()
+    await wechatInput('second', true)
+    expect(state.client.sendText).toHaveBeenCalledWith('bound-user', 'Custom receipt')
+  })
 
   it('notifies modern hosts only at final settlement, even after progress, and never replays history', async () => {
     modern()
