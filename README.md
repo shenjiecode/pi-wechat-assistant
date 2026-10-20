@@ -22,71 +22,55 @@
   <img src="https://raw.githubusercontent.com/shenjiecode/pi-wechat-assistant/main/assets/cover.png" alt="WeChat connected to pi" width="640">
 </p>
 
-A WeChat extension for [pi](https://github.com/earendil-works/pi): connect one WeChat user to one running pi session to send tasks, read replies, and exchange files from your phone.
+A WeChat extension for [pi](https://github.com/earendil-works/pi): send tasks, read replies, and exchange files with a running pi session from your phone.
 
 ### Features
 
-- **Two-way sync:** WeChat messages reach pi; new desktop input and AI replies can be mirrored (off by default), without replaying history.
-- **Text, images, and files:** supports quoted text and WeChat voice transcripts. Images reach the model; received files are saved under `.pi-wechat-files/` in the project. AI can send project files and images back.
-- **Readable replies:** full URLs, code chunks, text-based questions, and customizable reply rules.
-- **Session handoff:** confirm in the new session (or set the handoff mode to Auto to skip the prompt), then wait for the old bridge to stop before taking over. The old AI task is not cancelled.
-- **Tools on demand:** sending tools are available only while the bridge runs; stopping blocks new sends.
+- **Text, images, and files:** send tasks and images to pi; receive replies and project files in WeChat.
+- **Readable replies:** full links, code chunks, and customizable reply rules and receipt notifications.
+- **Optional desktop sync:** mirror new desktop input and AI replies, without replaying history.
+- **Session handoff:** move the active WeChat connection between pi sessions.
 
 ### Install and start
 
-Requires Node.js **≥20.3.0** and pi with a working model configuration. Also meet the Node.js requirement of your installed pi version; newer pi releases may require a newer Node.js.
+Requires Node.js **≥20.3.0**, a working pi model configuration, and the Node.js version required by your installed pi host.
+
+Run in your system terminal:
 
 ```bash
 pi install npm:pi-wechat-assistant
 ```
 
-Reopen pi and run in the TUI:
+Reopen pi, then run in its terminal UI:
 
 ```text
 /wechat login
 ```
 
-Scan and confirm in WeChat. Successful login automatically attempts to start the bridge. Send a WeChat message to begin. Credentials are saved; later sessions normally need only `/wechat start`.
+Scan and confirm in WeChat. Login attempts to start the bridge automatically; send a message and check that an AI reply returns. Later sessions normally need only `/wechat start`.
 
-Alternatively, install the GitHub main branch:
+### Everyday use
 
-```bash
-pi install git:github.com/shenjiecode/pi-wechat-assistant
-```
-
-### Common commands
-
-| Command | Purpose |
+| In pi | Purpose |
 | --- | --- |
 | `/wechat start` / `/wechat stop` | Start / stop this session’s bridge |
-| `/wechat status` | Inspect running state, lock ownership, and send results |
-| `/wechat config` | Settings dialogs: common toggles, image presets, reply templates |
-| `/wechat config ack off` | Disable receipt notifications; use `on` to enable. Customize text in the settings dialogs. |
-| `/wechat config bidirectional off` | Forward only WeChat-task replies; use `on` to restore two-way sync |
-| `/wechat prompt show` / `init` / `reload` | View / export / reload the reply template |
-| `/wechat login --force` | Scan again when login credentials expire |
-| `/wechat logout` | Stop and clear local login credentials |
+| `/wechat status` | Check running state and send results |
+| `/wechat config` | Configure mirroring, receipts, images, and reply templates |
 
-Send `/help` in WeChat for remote commands, including `/status`, `/model`, and `/stop`. **WeChat `/stop` cancels the AI task; TUI `/wechat stop` stops the bridge.**
+In WeChat, send `/help` for remote commands. **WeChat `/stop` cancels the AI task; pi `/wechat stop` stops the bridge.**
 
-Settings and the optional reply template live in `~/.pi/agent/wechat-assistant/`. While running, the bridge adds fixed, conditional WeChat system rules; incoming messages carry only the `[微信]` source marker.
+Keep the computer and pi running. Only the bound WeChat user is accepted, and one bridge can own the shared local account state at a time. Desktop mirroring is off by default. File-only messages are saved; follow with text to request processing. See the FAQ for sending limits and troubleshooting.
 
-- [Settings, defaults, and scope](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/settings.md)
-- [Reply templates, formatting, and tool compatibility](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/wechat-source.md)
-- [All documentation](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/README.md)
+### Guides
 
-### Limitations
-
-- Desktop pi must keep running. Only one bridge may own the shared local account state. Automatic handoff requires version 0.4.4 or newer on both sides; older owners need a manual stop.
-- **Saved login does not guarantee unrestricted proactive sending.** For persistent `ret=-2` failures, send a fresh message from WeChat and retry. Check `/wechat status` for the last send result.
-- File-only messages are saved and acknowledged; send text instructions to ask AI to process them. Mirrored desktop images show a count, not the image data. Video is unsupported.
-- Only messages from the bound WeChat user are accepted. WeChat `/tools` is disabled by default. Sending tools accept project-local files only, up to 50 MB each.
-
-Development checks ran on Windows, with two-session handoff verified on Linux. API type checks cover pi 0.73.1, 0.78.0, 0.84.0, 0.84.4, 0.99.2, 1.1.0, and 1.2.0.
+- [Quick start](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/quickstart.md): setup and your first verified reply.
+- [Upgrading](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/upgrading.md): update, restart, and preserve settings.
+- [FAQ and troubleshooting](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.md): login, missing replies, session handoff, and files.
+- [Settings](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/settings.md) · [All documentation](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/README.md)
 
 ### Contributing
 
-See the [contributing guide](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.md) for setup, checks, and submission conventions, and [architecture](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/architecture.md) for module responsibilities and runtime flow. For sensitive reports, see [security](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/SECURITY.md).
+See [Contributing](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.md) for setup and checks, [Architecture](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/architecture.md) for code organization, and [Security](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/SECURITY.md) for sensitive reports.
 
 ---
 

@@ -6,6 +6,9 @@ Start with the [project README](https://github.com/shenjiecode/pi-wechat-assista
 
 ## User guides
 
+- [Quick start](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/quickstart.md): install, connect, and verify your first reply.
+- [Upgrading](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/upgrading.md): update the installed source, restart, and preserve settings.
+- [FAQ and troubleshooting](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.md): missing replies, session handoff, receipts, and files.
 - [Settings](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/settings.md): defaults, configuration dialogs, and scope.
 - [WeChat source and reply rules](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/wechat-source.md): templates, formatting, tools, and message routing.
 - [Model error notifications](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/model-errors.md): failure reporting and Pi compatibility behavior.
