@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.6.3] - 2026-10-20
+
+### English
+
+- Separate configuration persistence and value resolution, transport state, configuration commands, and sending tools into focused modules. Preserve existing configuration paths, fields, defaults, environment fallbacks, and legacy exports; no configuration migration is required.
+- Fix legacy `/wechat autostart` and `/wechat remotetools` commands changing cached settings when saving fails.
+- Add regression coverage for configuration round trips, unknown fields, failed saves, transport-state isolation, and sending-tool lifecycle guards; update the architecture guides.
+- Expand Linux/Windows CI to Node.js 20.19.0, 22, and 24, with a separate Node.js 20.3.0 runtime smoke check. Clarify that the selected Pi host may require a newer Node.js version.
+- Welcome issues and PRs in any language without requiring translations, and document the private vulnerability-reporting channel.
+
+### 中文
+
+- 将配置持久化与取值、传输状态、配置命令和发送工具拆为独立模块；保留原配置路径、字段、默认值、环境变量回退及旧导出，无需迁移配置。
+- 修复旧 `/wechat autostart`、`/wechat remotetools` 命令保存失败时修改缓存配置的问题。
+- 补充配置往返、未知字段、保存失败、传输状态隔离及发送工具生命周期守卫的回归测试，同步架构文档。
+- Linux/Windows CI 扩展到 Node.js 20.19.0、22、24，并单独检查 Node.js 20.3.0 运行时冒烟场景；说明所选 Pi 宿主可能要求更高的 Node.js 版本。
+- 允许使用任何语言提交 issue 和 PR，无需翻译，并明确私密漏洞报告入口。
+
 ## [0.6.2] - 2026-10-20
 
 ### English
