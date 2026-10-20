@@ -5,14 +5,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { MessageQueue, getImageBatchWaitMs, getImageMaxBytes } from '../../src/bridge/queue.js'
 import type { IncomingMessage } from '../../src/wechat/types.js'
-import { getConfigCache } from '../../src/bridge/auth.js'
+import { getConfigCache } from '../../src/bridge/config.js'
 import { fetchFile, fetchImageAsBase64, saveFileToDisk } from '../../src/wechat/media.js'
 import { extractTextFromMessageContent } from '../../src/shared/utils.js'
 import { WECHAT_SOURCE_TAG } from '../../src/messaging/wechat-source.js'
 import { ACK_TEXT, IMAGE_BATCH_ACK_TEXT } from '../../src/shared/constants.js'
 
 // --- Mock getConfigCache 使配置读取可控 ---
-vi.mock('../../src/bridge/auth.js', () => ({
+vi.mock('../../src/bridge/config.js', () => ({
   getConfigCache: vi.fn(() => ({})),
 }))
 vi.mock('../../src/wechat/media.js', () => ({

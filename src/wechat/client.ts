@@ -30,7 +30,7 @@ import {
   saveCursor,
   loadSeenIds,
   saveSeenIds,
-} from '../bridge/auth.js'
+} from '../bridge/transport-state.js'
 import {
   CDN_BASE,
   STREAM_ENCRYPTION_THRESHOLD,

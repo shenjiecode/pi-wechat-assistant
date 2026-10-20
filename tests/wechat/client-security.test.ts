@@ -32,7 +32,7 @@ vi.mock('../../src/wechat/api.js', async () => ({
   isSessionExpired: vi.fn(() => false),
 }))
 
-vi.mock('../../src/bridge/auth.js', () => ({
+vi.mock('../../src/bridge/transport-state.js', () => ({
   loadContextTokens: mocks.loadContextTokens,
   saveContextTokensThrottled: mocks.saveContextTokensThrottled,
   flushContextTokens: vi.fn().mockResolvedValue(undefined),

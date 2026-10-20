@@ -1,6 +1,6 @@
 import type { ExtensionCommandContext } from '@mariozechner/pi-coding-agent'
-import type { BridgeConfig } from '../bridge/auth.js'
-import { ACK_TEXT, IMAGE_BATCH_ACK_TEXT } from '../shared/constants.js'
+import type { BridgeConfig } from '../bridge/config.js'
+import { receiptText } from '../bridge/config-values.js'
 
 interface ConfigMenuDeps {
   load: () => Promise<BridgeConfig>
@@ -41,7 +41,7 @@ export async function showConfigMenu(ctx: ExtensionCommandContext, deps: ConfigM
     }
     if (id === 'advanced' || id === 'back') { advanced = id === 'advanced'; continue }
     if (id === 'ack-text' || id === 'image-ack-text') {
-      const current = id === 'ack-text' ? config.ackText?.trim() || ACK_TEXT : config.imageBatchAckText?.trim() || IMAGE_BATCH_ACK_TEXT
+      const current = receiptText(config, id === 'image-ack-text')
       const value = await ctx.ui.input('收件回执内容（留空恢复默认；Esc 取消）', current)
       if (value !== undefined) await deps.apply(`${id} ${value}`)
       continue

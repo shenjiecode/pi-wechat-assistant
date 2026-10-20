@@ -31,9 +31,14 @@ assets/                        标志与包封面
 | 模块 | 职责 |
 | --- | --- |
 | `extension/index.ts` | 注册 Pi 事件与工具，协调桥接生命周期和轮次状态 |
-| `extension/commands.ts`, `config-menu.ts`, `remote-commands.ts` | TUI 命令、配置对话框与微信命令 |
+| `extension/commands.ts`, `remote-commands.ts` | 桥接生命周期命令与微信命令 |
+| `extension/config-commands.ts`, `config-menu.ts` | 配置及模板命令、对话框与等待任务结束的协调 |
+| `extension/send-tools.ts` | 发送工具注册、文件校验与实时桥接状态检查 |
 | `extension/model-failure.ts`, `status.ts` | Pi 失败事件兼容及状态展示 |
-| `bridge/auth.ts` | 登录流程、登录凭据、配置与传输状态持久化 |
+| `bridge/auth.ts` | 登录凭据与锁操作入口；保留兼容导出 |
+| `bridge/config.ts`, `config-values.ts` | 配置缓存与持久化、回执默认文案、图片配置取值及命令数值校验 |
+| `bridge/transport-state.ts` | 游标、已见消息 ID，以及串行化、节流的上下文凭据持久化 |
+| `bridge/state-storage.ts` | 公共状态目录与 JSON 文件权限、读写辅助函数 |
 | `bridge/bridge-lock.ts`, `bridge-ownership.ts` | 检查归属、获取与释放锁、协调交接 |
 | `bridge/queue.ts` | 批处理入站消息、准备附件并提交 Pi 请求 |
 | `wechat/api.ts`, `client.ts` | iLink 请求、轮询、发送及消息发送凭据 |
@@ -41,7 +46,9 @@ assets/                        标志与包封面
 | `messaging/` | 格式化出站文字、标记消息来源并加载回复规则 |
 | `shared/` | 不依赖领域模块的小型公共辅助函数 |
 
-目录按职责分组，并不表示各层完全独立。例如，微信客户端通过 `bridge/auth.ts` 持久化传输状态，而认证流程会使用 `wechat/api.ts`。应保持这些依赖显式可见，避免添加集中重导出文件或假定严格的单向分层。
+微信客户端通过 `bridge/transport-state.ts` 持久化传输状态，不再依赖登录或配置代码。运行时直接从 `bridge/config.ts` 导入配置；`auth.ts` 保留的旧导出指向同一份缓存。配置命令使用精简的依赖接口，生命周期协调仍留在扩展入口。发送工具读取实时客户端和运行状态，并在异步校验后再次检查。
+
+配置保留原 JSON 路径、字段、未知字段、进程内缓存及写入成功后更新缓存的语义。读取不会补写默认值或执行迁移；显式 `false` 和零值保持有效，图片 JSON 配置优先于环境变量回退。队列原有图片配置导出保留为兼容包装。配置测试使用隔离目录，覆盖重载、保存失败、默认值、校验及传输状态隔离。
 
 ## 运行流程
 

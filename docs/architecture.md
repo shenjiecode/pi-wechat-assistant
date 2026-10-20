@@ -31,9 +31,14 @@ assets/                        Logo and package cover
 | Module | Responsibility |
 | --- | --- |
 | `extension/index.ts` | Register Pi events and tools; coordinate bridge lifecycle and turn state |
-| `extension/commands.ts`, `config-menu.ts`, `remote-commands.ts` | TUI commands, configuration dialogs and WeChat commands |
+| `extension/commands.ts`, `remote-commands.ts` | Bridge lifecycle commands and WeChat commands |
+| `extension/config-commands.ts`, `config-menu.ts` | Configuration/template commands and dialogs, including task-idle coordination |
+| `extension/send-tools.ts` | Sending-tool registration, file guards and live bridge-state checks |
 | `extension/model-failure.ts`, `status.ts` | Pi failure compatibility and status presentation |
-| `bridge/auth.ts` | Login flow, credentials, configuration and transport state persistence |
+| `bridge/auth.ts` | Login credentials and ownership entry points; compatibility re-exports |
+| `bridge/config.ts`, `config-values.ts` | Configuration cache/persistence, receipt defaults, image resolution and numeric command validation |
+| `bridge/transport-state.ts` | Cursor, seen-message IDs and serialized/throttled context-token persistence |
+| `bridge/state-storage.ts` | Shared state directory and JSON file permissions/read/write helpers |
 | `bridge/bridge-lock.ts`, `bridge-ownership.ts` | Inspect ownership, acquire and release locks, coordinate handoff |
 | `bridge/queue.ts` | Batch incoming messages, prepare attachments and submit Pi requests |
 | `wechat/api.ts`, `client.ts` | iLink requests, polling, sending and message-send credentials |
@@ -41,7 +46,9 @@ assets/                        Logo and package cover
 | `messaging/` | Format outgoing text, mark message sources and load reply rules |
 | `shared/` | Small shared helpers without importing domain modules |
 
-The folders group responsibilities; they do not imply fully independent layers. In particular, the WeChat client persists transport state through `bridge/auth.ts`, while authentication uses `wechat/api.ts`. Keep these dependencies explicit rather than adding barrel exports or claiming a strict dependency hierarchy.
+The WeChat client persists transport state through `bridge/transport-state.ts`, without depending on login/configuration code. Runtime consumers import configuration directly from `bridge/config.ts`; legacy exports in `auth.ts` refer to the same cache. Configuration commands use a narrow dependency interface, while lifecycle coordination remains in the extension entry. Sending tools read live client/running state and recheck it after asynchronous guards.
+
+Configuration retains the existing JSON path, keys, unknown fields, per-process cache, and save-after-write behavior. Reading never writes defaults or migrations. Explicit `false` and zero values are preserved; image JSON values take precedence over environment fallbacks. The existing queue image-setting exports remain compatibility wrappers. Configuration tests use isolated state directories and cover reloads, failed saves, defaults, validation, and transport-state isolation.
 
 ## Runtime flow
 

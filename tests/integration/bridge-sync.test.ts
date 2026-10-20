@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { BridgeConfig } from '../../src/bridge/auth.js'
+import type { BridgeConfig } from '../../src/bridge/config.js'
 
 const state = vi.hoisted(() => ({
   config: {} as BridgeConfig,
@@ -23,13 +23,15 @@ vi.mock('../../src/wechat/client.js', () => ({
   WeixinClient: { create: vi.fn(async () => state.client) },
   SessionExpiredError: class extends Error {},
 }))
+vi.mock('../../src/bridge/config.js', () => ({
+  loadConfig: vi.fn(async () => state.config),
+  saveConfig: vi.fn(async (config: BridgeConfig) => { state.config = config }),
+  getConfigCache: vi.fn(() => state.config),
+}))
 vi.mock('../../src/bridge/auth.js', async () => ({
   ...await vi.importActual<typeof import('../../src/bridge/auth.js')>('../../src/bridge/auth.js'),
   getStateDir: () => process.cwd() + '/node_modules/.cache/wechat-bridge-test-state',
   loadCredentials: vi.fn(async () => ({})),
-  loadConfig: vi.fn(async () => state.config),
-  saveConfig: vi.fn(async (config: BridgeConfig) => { state.config = config }),
-  getConfigCache: vi.fn(() => state.config),
   acquireLock: vi.fn(async (sessionId: string) => {
     if (state.lockConflict) return { success: false, message: '其他 pi 进程持有微信桥接锁（PID 424242）' }
     state.lockState = { kind: 'current', pid: process.pid, sessionId, protocol: 1 }
@@ -151,7 +153,7 @@ describe('bridge bidirectional sync and lifecycle', () => {
   })
 
   it('preserves receipt settings if saving fails', async () => {
-    const { saveConfig } = await import('../../src/bridge/auth.js')
+    const { saveConfig } = await import('../../src/bridge/config.js')
     state.config = { sendAck: false, ackText: 'original' }
     vi.mocked(saveConfig).mockRejectedValueOnce(new Error('disk full'))
     await command('config ack on')
@@ -159,6 +161,14 @@ describe('bridge bidirectional sync and lifecycle', () => {
     vi.mocked(saveConfig).mockRejectedValueOnce(new Error('disk full'))
     await command('config ack-text replacement')
     expect(state.config.ackText).toBe('original')
+  })
+
+  it.each(['autostart', 'remotetools on'])('keeps cached settings when legacy command %s cannot save', async args => {
+    const { saveConfig } = await import('../../src/bridge/config.js')
+    state.config = { autoStart: false, allowRemoteTools: false }
+    vi.mocked(saveConfig).mockRejectedValueOnce(new Error('disk full'))
+    await expect(command(args)).rejects.toThrow('disk full')
+    expect(state.config).toEqual({ autoStart: false, allowRemoteTools: false })
   })
 
   it('opens settings while stopped without registering tools or changing rules', async () => {
@@ -182,7 +192,7 @@ describe('bridge bidirectional sync and lifecycle', () => {
   })
 
   it('cancels a setting choice without saving', async () => {
-    const { saveConfig } = await import('../../src/bridge/auth.js')
+    const { saveConfig } = await import('../../src/bridge/config.js')
     ctx.ui.select.mockResolvedValueOnce('双向同步：关闭 · 电脑输入和 AI 回复也转发到微信').mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined)
     await command('config')
     expect(saveConfig).not.toHaveBeenCalled()
@@ -210,7 +220,7 @@ describe('bridge bidirectional sync and lifecycle', () => {
   })
 
   it.each([false, true])('cancels image selection without saving (custom=%s)', async custom => {
-    const { saveConfig } = await import('../../src/bridge/auth.js')
+    const { saveConfig } = await import('../../src/bridge/config.js')
     ctx.ui.input = vi.fn().mockResolvedValue(undefined)
     ctx.ui.select.mockResolvedValueOnce('高级设置…').mockResolvedValueOnce('单张图片下载上限：50 MB · 超过则拒绝下载')
       .mockResolvedValueOnce(custom ? '自定义…' : undefined)
@@ -220,14 +230,14 @@ describe('bridge bidirectional sync and lifecycle', () => {
   })
 
   it.each(['image-wait -1', 'image-wait 60001', 'image-max 0.5', 'image-max Infinity', 'image-max'])('rejects invalid config: %s', async args => {
-    const { saveConfig } = await import('../../src/bridge/auth.js')
+    const { saveConfig } = await import('../../src/bridge/config.js')
     await command('config ' + args)
     expect(saveConfig).not.toHaveBeenCalled()
     expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.any(String), 'error')
   })
 
   it('does not change cached configuration when saving fails', async () => {
-    const { saveConfig } = await import('../../src/bridge/auth.js')
+    const { saveConfig } = await import('../../src/bridge/config.js')
     vi.mocked(saveConfig).mockRejectedValueOnce(new Error('disk full'))
     ctx.ui.select.mockResolvedValueOnce('双向同步：关闭 · 电脑输入和 AI 回复也转发到微信').mockResolvedValueOnce('开启').mockResolvedValueOnce(undefined)
     await command('config')

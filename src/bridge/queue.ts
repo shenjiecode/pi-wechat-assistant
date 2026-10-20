@@ -8,16 +8,13 @@ import { debugLog } from '../shared/logger.js'
 import { WeixinClient } from '../wechat/client.js'
 import { fetchImageAsBase64, fetchFile, saveFileToDisk, type ImageData } from '../wechat/media.js'
 import {
-  ACK_TEXT,
-  IMAGE_BATCH_ACK_TEXT,
-  DEFAULT_IMAGE_BATCH_WAIT_MS,
-  DEFAULT_IMAGE_MAX_BYTES,
   MAX_IMAGE_PREFETCH_CONCURRENCY,
 } from '../shared/constants.js'
 import { summarizePreview, formatError, extractTextFromMessageContent } from '../shared/utils.js'
 import { redactUrl } from '../shared/logger.js'
 import type { IncomingMessage } from '../wechat/types.js'
-import { getConfigCache } from './auth.js'
+import { getConfigCache } from './config.js'
+import { resolveImageBatchWaitMs, resolveImageMaxBytes, receiptText } from './config-values.js'
 import { markWechatSource, WECHAT_SOURCE_TAG, DEFAULT_WECHAT_BLOCKED_TOOLS, type WechatUserContent } from '../messaging/wechat-source.js'
 
 // --- 类型 ---
@@ -52,19 +49,9 @@ function contentKey(content: unknown): string {
 
 // --- 配置读取（同步，基于内存缓存） ---
 
-export function getImageBatchWaitMs(): number {
-  const configured = getConfigCache().imageBatchWaitMs
-  const envValue = Number(process.env.PI_WECHAT_IMAGE_BATCH_WAIT_MS)
-  const value = configured ?? (Number.isFinite(envValue) && envValue > 0 ? envValue : DEFAULT_IMAGE_BATCH_WAIT_MS)
-  return Math.max(0, Math.min(value, 60_000))
-}
-
-export function getImageMaxBytes(): number {
-  const configured = getConfigCache().imageMaxBytes
-  const envValue = Number(process.env.PI_WECHAT_IMAGE_MAX_BYTES)
-  const value = configured ?? (Number.isFinite(envValue) && envValue > 0 ? envValue : DEFAULT_IMAGE_MAX_BYTES)
-  return Math.max(1024 * 1024, value)
-}
+// Keep the existing queue exports as compatibility wrappers.
+export function getImageBatchWaitMs(): number { return resolveImageBatchWaitMs(getConfigCache()) }
+export function getImageMaxBytes(): number { return resolveImageMaxBytes(getConfigCache()) }
 
 // --- 简单信号量 ---
 
@@ -198,7 +185,7 @@ export class MessageQueue {
     if (hasImages) {
       if (!this.imageBatchAckSent && client && getConfigCache().sendAck !== false) {
         this.imageBatchAckSent = true
-        void client.sendText(message.userId, getConfigCache().imageBatchAckText?.trim() || IMAGE_BATCH_ACK_TEXT).catch(err => log(`[IMAGE-ACK-FAIL] ${formatError(err)}`))
+        void client.sendText(message.userId, receiptText(getConfigCache(), true)).catch(err => log(`[IMAGE-ACK-FAIL] ${formatError(err)}`))
       }
       this.restartBatchTimer('图片')
       return
@@ -418,7 +405,7 @@ export class MessageQueue {
 
     if (!hadImageMessages && getConfigCache().sendAck !== false) {
       try {
-        await client.sendText(first.userId, getConfigCache().ackText?.trim() || ACK_TEXT)
+        await client.sendText(first.userId, receiptText(getConfigCache()))
       } catch (err) {
         log(`发送回执失败: ${formatError(err)}`)
       }
