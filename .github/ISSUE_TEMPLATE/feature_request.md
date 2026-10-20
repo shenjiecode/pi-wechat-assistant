@@ -3,28 +3,24 @@ name: Feature request / 功能建议
 about: Propose an improvement with a concrete use case / 结合具体使用场景提出改进
 ---
 
-## English
-
-Write the complete English proposal here, followed by its complete Chinese translation below. Do not alternate languages by paragraph or subsection.
+Use any language you are comfortable with. No translation is required; fill in either section or replace it with your own proposal.
 
 ### Use case
 
-Describe the problem you want to solve.
+What problem would this solve?
 
 ### Proposed behavior
 
-Describe the desired behavior and alternatives considered.
+Describe the desired behavior and any alternatives.
 
 ---
 
-## 中文
-
-先在上方写完整英文建议，再在本节写完整的对应中文，不按段落或小节交替排列。
+可以使用任何你习惯的语言，无需翻译；任选一组填写，也可以直接按自己的方式描述。
 
 ### 使用场景
 
-说明希望解决的问题。
+希望解决什么问题？
 
 ### 预期行为
 
-说明希望实现的行为及考虑过的替代方案。
+描述希望实现的行为及替代方案。

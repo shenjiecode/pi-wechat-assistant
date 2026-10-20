@@ -3,9 +3,7 @@ name: Bug report / 缺陷报告
 about: Report reproducible unexpected behavior / 报告可复现的异常行为
 ---
 
-## English
-
-Write the complete English report here, followed by its complete Chinese translation below. Do not alternate languages by paragraph or subsection. Remove credentials and private messages from examples and logs. For vulnerabilities, see [Security](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/SECURITY.md).
+Use any language you are comfortable with. No translation is required; fill in either section or replace it with your own report. Remove credentials and private messages from logs. For vulnerabilities, use [private reporting](https://github.com/shenjiecode/pi-wechat-assistant/security/advisories/new).
 
 ### Problem
 
@@ -13,21 +11,15 @@ What happened, and what did you expect?
 
 ### Reproduction
 
-Provide minimal steps and relevant settings, including bidirectional sync or handoff mode when applicable.
+Minimal steps and relevant settings.
 
-### Environment
+### Environment and diagnostics
 
-Extension version, Pi version and package namespace, Node.js version, OS, and installation method.
-
-### Sanitized diagnostics
-
-Include relevant errors and `/wechat status` output after redacting sensitive data.
+Extension version, Pi version/package, Node.js version, OS, installation method, and sanitized errors or `/wechat status` output.
 
 ---
 
-## 中文
-
-先在上方写完整英文报告，再在本节写完整的对应中文，不按段落或小节交替排列。示例和日志中请移除凭据与私人消息。漏洞报告请参阅[安全说明](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/SECURITY.zh.md)。
+可以使用任何你习惯的语言，无需翻译；任选一组填写，也可以直接按自己的方式描述。日志中请移除凭据与私人消息。漏洞请使用[私密报告](https://github.com/shenjiecode/pi-wechat-assistant/security/advisories/new)。
 
 ### 问题
 
@@ -35,12 +27,8 @@ Include relevant errors and `/wechat status` output after redacting sensitive da
 
 ### 复现
 
-提供最小复现步骤及相关配置；如涉及双向同步或交接，请说明对应设置。
+最小复现步骤及相关配置。
 
-### 环境
+### 环境与诊断
 
-扩展版本、Pi 版本和包命名空间、Node.js 版本、操作系统及安装方式。
-
-### 脱敏诊断信息
-
-提供相关报错与已脱敏的 `/wechat status` 输出。
+扩展版本、Pi 版本及包名、Node.js 版本、操作系统、安装方式，以及脱敏报错或 `/wechat status` 输出。

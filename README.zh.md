@@ -34,7 +34,7 @@
 
 ### 安装与开始使用
 
-需要 Node.js **≥20.3.0**，以及已配置可用模型的 pi。
+需要 Node.js **≥20.3.0**，以及已配置可用模型的 pi。还需满足已安装 pi 版本的 Node.js 要求；新版 pi 可能要求更高的 Node.js 版本。
 
 ```bash
 pi install npm:pi-wechat-assistant

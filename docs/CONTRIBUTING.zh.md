@@ -6,7 +6,7 @@
 
 ## 开发环境
 
-开发时使用 Node.js 22 和 npm，与 CI 保持一致。包声明的运行时最低版本为 Node.js 20.3.0；开发 CI 不覆盖所有支持的 Node.js 版本。
+开发时使用 Node.js 22 和 npm。CI 在 Linux 和 Windows 上使用 Node.js 20.19.0、22、24 执行完整检查；单独的 Node.js 20.3.0 冒烟检查验证编译后的扩展注册和模拟客户端下的文字队列提交，不运行 Pi 宿主，也不验证真实微信收发。所选 Pi 宿主可能要求更高的 Node.js 版本。
 
 ```bash
 git clone https://github.com/shenjiecode/pi-wechat-assistant.git
@@ -77,9 +77,9 @@ git push origin develop
 
 ## Issue 与 PR
 
-Issue、PR 的说明、评论、回复及评审意见采用整体双语格式：先写完整英文，再在下方写完整的对应中文，不按段落或小节交替排列。Issue、PR 模板也遵循此结构。说明文档不适用这项交流规则，按上文约定拆分为独立的语言文件。交流应礼貌、尊重对方，在保证信息完整的前提下尽量简洁，并提供复现步骤、环境版本和实际执行的验证。
+欢迎使用任何语言提交 issue、PR、评论或评审，无需翻译或提供双语内容。模板中的英文与中文部分是可选的参考，任选一组填写，也可以直接按自己的方式描述。交流应礼貌、简洁，并提供复现步骤、环境版本和实际执行的验证。项目说明文档仍按上文约定拆分为独立的语言文件。
 
-提交 PR 前运行 `npm run check` 和 `npm run typecheck:pi`。CI 在 Linux 和 Windows 上执行主要检查，并在 Linux 上执行 Pi 兼容性检查。手动验证与自动化测试应分别说明。
+提交 PR 前运行 `npm run check` 和 `npm run typecheck:pi`。CI 在 Linux 和 Windows 上执行主要检查，并在 Linux 的 Node.js 22 环境执行 Pi 兼容性检查。手动验证与自动化测试应分别说明。
 
 保留现有的缺陷报告、功能建议和 PR 模板；简单明确的小改动不必先开 issue。PR 保持聚焦，说明目标分支、目的和验证结果即可。
 

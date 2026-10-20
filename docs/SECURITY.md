@@ -6,9 +6,9 @@ This extension handles local login credentials, message-send credentials, conver
 
 ## Reporting a vulnerability
 
-If the repository's Security tab offers **Report a vulnerability**, use that private channel. Include the affected version, impact and a minimal reproduction with fake credentials. If private reporting is unavailable, open a public issue asking for a private reporting channel without disclosing exploit details or sensitive data.
+Use [Report a vulnerability](https://github.com/shenjiecode/pi-wechat-assistant/security/advisories/new) to submit a private report. Include the affected version, impact, and a minimal reproduction with fake credentials. Do not disclose exploit details or sensitive data in public issues.
 
-Ordinary bugs without sensitive details can use the bug report template. Write the complete English report first, followed by the complete corresponding Chinese report; do not alternate languages by paragraph or subsection.
+Ordinary bugs without sensitive details can use the bug report template. Reports are welcome in any language; no translation is required.
 
 ## Verification limits
 

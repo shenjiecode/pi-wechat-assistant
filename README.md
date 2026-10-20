@@ -34,7 +34,7 @@ A WeChat extension for [pi](https://github.com/earendil-works/pi): connect one W
 
 ### Install and start
 
-Requires Node.js **≥20.3.0** and pi with a working model configuration.
+Requires Node.js **≥20.3.0** and pi with a working model configuration. Also meet the Node.js requirement of your installed pi version; newer pi releases may require a newer Node.js.
 
 ```bash
 pi install npm:pi-wechat-assistant

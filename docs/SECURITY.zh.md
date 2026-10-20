@@ -6,9 +6,9 @@
 
 ## 报告漏洞
 
-如果仓库的 Security 页面提供 **Report a vulnerability**，请使用该私密渠道，并提供受影响版本、影响和使用虚构凭据的最小复现。如果私密报告不可用，请先开公开 issue 请求私密报告渠道，不要披露利用细节或敏感数据。
+请使用 [Report a vulnerability](https://github.com/shenjiecode/pi-wechat-assistant/security/advisories/new) 提交私密漏洞报告，并提供受影响版本、影响和使用虚构凭据的最小复现。不要在公开 issue 中披露利用细节或敏感数据。
 
-不涉及敏感细节的普通问题可使用缺陷报告模板。请先写完整英文报告，再在下方写完整的对应中文报告，不按段落或小节交替排列。
+不涉及敏感细节的普通问题可使用缺陷报告模板。可以使用任何语言提交，无需翻译。
 
 ## 验证边界
 

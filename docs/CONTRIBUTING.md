@@ -6,7 +6,7 @@ Thank you for helping improve pi-wechat-assistant. For larger changes, open an i
 
 ## Development setup
 
-Use Node.js 22 and npm for development, matching CI. The package's declared runtime minimum is Node.js 20.3.0; the development CI does not verify every supported Node.js version.
+Use Node.js 22 and npm for development. CI runs the full checks on Linux and Windows with Node.js 20.19.0, 22, and 24. A separate Node.js 20.3.0 smoke check verifies compiled extension registration and text queue submission with a mocked client; it does not run a Pi host or verify real WeChat delivery. The selected Pi host may require a newer Node.js version.
 
 ```bash
 git clone https://github.com/shenjiecode/pi-wechat-assistant.git
@@ -77,9 +77,9 @@ Keep the English project overview in `README.md` and its Simplified Chinese tran
 
 ## Issues and pull requests
 
-For issues, PR descriptions, comments, replies, and review feedback, write the complete English content first, followed by the complete corresponding Chinese content. Do not alternate languages by paragraph or subsection; issue and PR templates follow the same structure. Documentation is excluded from this communication rule and uses separate language files as described above. Be respectful and concise while preserving necessary information. Include reproduction steps, environment versions, and the checks you actually ran.
+Issues, pull requests, comments, and reviews are welcome in any language. No translation or bilingual submission is required. The English and Chinese template sections are optional alternatives; use either or write your own description. Be respectful and concise, and include reproduction steps, environment versions, and the checks you actually ran. Project documentation continues to use separate language files as described above.
 
-Before opening a PR, run `npm run check` and `npm run typecheck:pi`. CI runs the main checks on Linux and Windows, and the Pi compatibility check on Linux. Describe any manual verification separately from automated tests.
+Before opening a PR, run `npm run check` and `npm run typecheck:pi`. CI runs the main checks on Linux and Windows, and the Pi compatibility check on Linux with Node.js 22. Describe any manual verification separately from automated tests.
 
 Use the existing bug report, feature request, and PR templates; an issue is optional for a small, clear change. Keep the PR focused and state its target branch, purpose, and validation.
 

@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        node: [22]
+        node: ['20.19.0', 22, 24]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -30,4 +30,26 @@ jobs:
       - run: npm run check
 
       - run: npm run typecheck:pi
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.node == 22
+
+  minimum-runtime:
+    name: minimum runtime (${{ matrix.os }}, 20.3.0)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Compile with development tooling, then exercise emitted runtime code
+      # without loading the test runner or either Pi host on the minimum Node.
+      - run: npx tsc --outDir dist --declaration false --declarationMap false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20.3.0'
+      - run: node scripts/check-minimum-runtime.mjs
