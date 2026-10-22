@@ -6,6 +6,7 @@
 
 ## 使用指南
 
+- [实操教程](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/tutorial.zh.md)：从第一次回复，到文件收发，再到两个会话间交接。
 - [快速上手](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/quickstart.zh.md)：安装、连接并验证首次回复。
 - [升级指南](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/upgrading.zh.md)：更新安装来源、重启与保留配置。
 - [常见问题与排障](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.zh.md)：未收到回复、会话交接、收件回执和文件问题。
@@ -15,6 +16,7 @@
 
 ## 参与开发
 
+- [维护与验收](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.zh.md)：CI 能证明什么、依赖更新、日志排障和真实账号发布检查。
 - [架构说明](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/architecture.zh.md)：目录职责与运行流程。
 - [贡献指南](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.zh.md)：环境准备、检查命令与贡献约定。
 - [安全说明](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/SECURITY.zh.md)：敏感信息处理与漏洞报告方式。

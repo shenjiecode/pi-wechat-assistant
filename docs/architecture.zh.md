@@ -52,6 +52,16 @@ assets/                        标志与包封面
 
 ## 运行流程
 
+```mermaid
+flowchart LR
+  W[绑定的微信用户] --> C[微信客户端：校验发送者]
+  C --> Q[桥接队列：合并消息、准备文件]
+  Q --> P[Pi 会话和模型]
+  P --> F[回复格式化]
+  F --> C
+  C --> W
+```
+
 1. 根入口加载 `src/extension/index.ts`，由它注册 Pi 命令、事件和桥接工具。
 
 2. 启动桥接时加载本地状态并获取锁归属。微信客户端轮询 iLink，校验绑定发送方后将消息交给队列。
@@ -69,3 +79,17 @@ assets/                        标志与包封面
 账号状态保存在 `~/.pi/agent/wechat-assistant/`，收到的文件保存在当前项目的 `.pi-wechat-files/`。这些是运行时数据，不属于仓库资源。测试使用模拟依赖或 `node_modules/.cache/` 下的临时目录。
 
 开发命令和发布检查见[贡献指南](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.zh.md)。
+
+## 让依赖关系保持清楚
+
+`npm run check:architecture` 解析 TypeScript 导入、再导出和字符串形式的动态导入，检查反向跨层依赖、运行时循环依赖、缺失目标、相对导入的 `.js` 后缀及 Pi 宿主的运行时导入。它已经包含在 `npm run check` 中。
+
+- `extension` 负责协调其他层，下层不反向导入它。
+- `bridge` 协调状态、排队、消息和收发。
+- `wechat` 管协议和媒体，只有 `client.ts` 可以使用 `bridge/transport-state.ts` 持久化收发状态。
+- `messaging` 管格式和模板，只有模板加载器可以从 `bridge/state-storage.ts` 取得目录；不再为了一个路径而导入登录和锁管理入口。
+- `shared` 不导入其他领域层。
+
+两个持久化依赖是明确例外，不代表下层可以随意导入整个 bridge。类型依赖也检查层次，但不计入运行时循环；计算得到的动态导入路径和 CommonJS `require` 不在检查范围内，应继续使用项目的静态 ESM 写法。
+
+`extension/index.ts` 的生命周期协调和批处理队列暂时保留，因为取消、发送排空和锁归属状态会相互影响。有独立职责和行为测试时再提取模块，不为单纯减少行数而拆分。日志约束与验证边界见[维护指南](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.zh.md)。

@@ -6,7 +6,7 @@ Thank you for helping improve pi-wechat-assistant. For larger changes, open an i
 
 ## Development setup
 
-Use Node.js 22 and npm for development. CI runs the full checks on Linux and Windows with Node.js 20.19.0, 22, and 24. A separate Node.js 20.3.0 smoke check verifies compiled extension registration and text queue submission with a mocked client; it does not run a Pi host or verify real WeChat delivery. The selected Pi host may require a newer Node.js version.
+Use Node.js 22.19+ (or 24) and npm for development; the current development Pi package requires it. CI runs the full checks on Linux and Windows with Node.js 20.19.0, 22, and 24. A separate Node.js 20.3.0 smoke check verifies compiled extension registration and text queue submission with a mocked client; it does not run a Pi host or verify real WeChat delivery. The selected Pi host may require a newer Node.js version.
 
 ```bash
 git clone https://github.com/shenjiecode/pi-wechat-assistant.git
@@ -53,11 +53,12 @@ The fast-forward assumes `develop` has not advanced since the release PR. If it 
 
 | Command | Purpose |
 | --- | --- |
-| `npm run check` | Source type checks, tests, documentation links, and npm package contents |
+| `npm run check` | Source types, architecture boundaries, tests, documentation links, and npm package contents |
 | `npm run typecheck` | Check runtime TypeScript sources |
 | `npm test` | Run all tests once |
 | `npm run test:watch` | Watch tests while developing |
-| `npm run typecheck:pi` | Check published Pi API declarations across seven versions |
+| `npm run typecheck:pi` | Check published Pi API declarations across eight versions |
+| `npm run check:architecture` | Check domain boundaries, runtime cycles and type-only Pi imports |
 | `npm run check:docs` | Verify documentation navigation and language-switch links |
 | `npm run check:package` | Inspect the publish file list without creating an archive |
 
@@ -86,6 +87,8 @@ Use the existing bug report, feature request, and PR templates; an issue is opti
 `main` requires a PR and both CI checks: `check (ubuntu-latest, 22)` and `check (windows-latest, 22)`. The PR must be up to date with `main`. Required approving reviews are set to **0**: GitHub does not allow authors to approve their own PRs, so the sole maintainer inspects the diff and checks, then merges manually. Protection also applies to administrators; force pushes and branch deletion are disabled. Do not configure automatic merging on the maintainer's behalf.
 
 For sensitive reports, see [Security](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/SECURITY.md).
+
+CI also provides the `CI success` aggregate covering the full matrix, minimum runtime and production audit. The protection described above is the existing configuration; adding the workflow does not automatically make the aggregate required. The maintainer should configure it after a successful run. See [Maintenance](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.md) for check boundaries and the real-WeChat acceptance checklist.
 
 ## Releases
 

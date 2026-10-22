@@ -52,6 +52,16 @@ Configuration retains the existing JSON path, keys, unknown fields, per-process 
 
 ## Runtime flow
 
+```mermaid
+flowchart LR
+  W[Bound WeChat user] --> C[WeChat client: validate sender]
+  C --> Q[Bridge queue: batch and prepare files]
+  Q --> P[Pi session and model]
+  P --> F[Reply formatting]
+  F --> C
+  C --> W
+```
+
 1. The root entry loads `src/extension/index.ts`, which registers Pi commands, events and bridge tools.
 
 2. Starting the bridge loads local state and acquires ownership. The WeChat client polls iLink and checks the bound sender before messages reach the queue.
@@ -69,3 +79,17 @@ Configuration retains the existing JSON path, keys, unknown fields, per-process 
 Account state lives in `~/.pi/agent/wechat-assistant/`; received files live in the active project's `.pi-wechat-files/`. These are runtime data, not repository assets. Tests use mocks or scratch directories under `node_modules/.cache/`.
 
 For development commands and release checks, see [Contributing](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.md).
+
+## Keep dependencies understandable
+
+`npm run check:architecture` parses TypeScript imports/re-exports and literal dynamic imports. It rejects reverse domain dependencies, runtime cycles, missing relative targets, non-`.js` relative imports and runtime Pi-host imports. It runs inside `npm run check`.
+
+- `extension` coordinates the other domains. Lower layers do not import it.
+- `bridge` coordinates state, queueing, messaging and transport.
+- `wechat` owns protocol handling and media; only `client.ts` may use `bridge/transport-state.ts` for persistence.
+- `messaging` owns formatting and templates; only the prompt loader may use `bridge/state-storage.ts` for its directory. It no longer imports the login/ownership facade just to find a path.
+- `shared` imports no other domain.
+
+The two persistence edges are explicit exceptions, not permission for lower layers to import the whole bridge. Type-only edges are checked for domain boundaries but excluded from runtime-cycle detection. Computed dynamic imports and CommonJS `require` are outside this guard's scope; use the project's static ESM conventions.
+
+The lifecycle coordinator in `extension/index.ts` and batching queue remain together because their cancellation, send/drain and ownership state interact. Extract a module when it has a clear responsibility and behavioral tests, rather than splitting only to reduce line count. See [maintenance](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.md) for logging constraints and verification boundaries.

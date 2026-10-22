@@ -63,6 +63,7 @@ pi install npm:pi-wechat-assistant
 
 ### 使用指南
 
+- [实操教程](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/tutorial.zh.md)：跑通真实回复、文件收发和自动会话交接。
 - [快速上手](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/quickstart.zh.md)：安装、连接并验证首次回复。
 - [升级指南](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/upgrading.zh.md)：更新、重启与保留配置。
 - [常见问题与排障](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.zh.md)：登录、未收到回复、会话交接和文件问题。

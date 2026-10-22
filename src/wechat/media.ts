@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { createDecipheriv } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import { debugLog, redactUrl } from '../shared/logger.js'
+import { debugLog, debugError, redactUrl } from '../shared/logger.js'
 import { withTimeout } from '../shared/utils.js'
 import { CDN_BASE } from '../shared/constants.js'
 
@@ -50,7 +50,7 @@ export async function fetchImageAsBase64(
     const rawContentType = response.headers.get('content-type') ?? ''
     const contentType = rawContentType.toLowerCase().startsWith('image/') ? rawContentType : 'image/jpeg'
     if (rawContentType && !rawContentType.toLowerCase().startsWith('image/') && !aesKey) {
-      debugLog(`图片下载失败: 非图片 content-type=${rawContentType}`)
+      debugLog('图片下载失败: 非图片 content-type')
       return null
     }
     const contentLength = Number(response.headers.get('content-length') ?? '0')
@@ -63,12 +63,12 @@ export async function fetchImageAsBase64(
       debugLog(`图片下载失败: 实际大小=${buffer.byteLength} 超过限制 ${maxBytes}`)
       return null
     }
-    debugLog(`图片下载成功: ${buffer.byteLength} bytes, type=${contentType}`)
+    debugLog(`图片下载成功: ${buffer.byteLength} bytes`)
     const imageBuffer = aesKey ? aesDecryptECB(buffer, aesKey) : buffer
     if (aesKey) debugLog(`图片解密成功: ${imageBuffer.length} bytes`)
     return { data: imageBuffer.toString('base64'), mediaType: contentType }
   } catch (err) {
-    debugLog(`图片下载异常: ${err}`)
+    debugLog(`图片下载异常: ${debugError(err)}`)
     return null
   }
 }
@@ -98,7 +98,7 @@ export async function fetchFile(
     }
     return buffer
   } catch (err) {
-    debugLog(`文件下载异常: ${err}`)
+    debugLog(`文件下载异常: ${debugError(err)}`)
     return null
   }
 }
@@ -118,7 +118,7 @@ export async function saveFileToDisk(
     await fs.writeFile(filePath, buffer)
     return filePath
   } catch (err) {
-    debugLog(`文件保存失败: ${err}`)
+    debugLog(`文件保存失败: ${debugError(err)}`)
     return null
   }
 }

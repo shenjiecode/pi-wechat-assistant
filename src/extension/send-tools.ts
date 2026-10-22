@@ -6,7 +6,7 @@ import type { WeixinClient } from '../wechat/client.js'
 import { getBridgeLockState } from '../bridge/auth.js'
 import { describeBridgeLock } from '../bridge/bridge-lock.js'
 import { ok, fail, formatError } from '../shared/utils.js'
-import { debugLog } from '../shared/logger.js'
+import { debugLog, debugError } from '../shared/logger.js'
 
 type Ctx = ExtensionContext | ExtensionCommandContext
 interface SendToolDeps {
@@ -106,7 +106,7 @@ export function registerWechatTools(pi: ExtensionAPI, enabled: boolean, deps: Se
         const name = params.fileName ?? path.basename(guard.resolvedPath)
         return ok(`✅ 文件「${name}」(${(stats.size / 1024).toFixed(1)} KB) 已发送到微信`)
       } catch (err) {
-        debugLog(`send_file_to_wechat 失败: ${formatError(err)}`)
+        debugLog(`send_file_to_wechat 失败: ${debugError(err)}`)
         return fail(`发送失败: ${formatError(err)}`)
       }
     },
@@ -139,7 +139,7 @@ export function registerWechatTools(pi: ExtensionAPI, enabled: boolean, deps: Se
         await client.sendImage(client.userId, guard.resolvedPath)
         return ok(`✅ 图片 (${(stats.size / 1024).toFixed(1)} KB) 已发送到微信`)
       } catch (err) {
-        debugLog(`send_image_to_wechat 失败: ${formatError(err)}`)
+        debugLog(`send_image_to_wechat 失败: ${debugError(err)}`)
         return fail(`发送失败: ${formatError(err)}`)
       }
     },

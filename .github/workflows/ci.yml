@@ -9,8 +9,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -33,6 +38,7 @@ jobs:
         if: runner.os == 'Linux' && matrix.node == 22
 
   minimum-runtime:
+    timeout-minutes: 10
     name: minimum runtime (${{ matrix.os }}, 20.3.0)
     strategy:
       fail-fast: false
@@ -53,3 +59,30 @@ jobs:
         with:
           node-version: '20.3.0'
       - run: node scripts/check-minimum-runtime.mjs
+
+  audit-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm run audit:production
+
+  ci-success:
+    name: CI success
+    if: always()
+    needs: [check, minimum-runtime, audit-production]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every validation job to pass
+        env:
+          MATRIX_RESULT: ${{ needs.check.result }}
+          MINIMUM_RESULT: ${{ needs.minimum-runtime.result }}
+          AUDIT_RESULT: ${{ needs.audit-production.result }}
+        run: |
+          test "$MATRIX_RESULT" = success
+          test "$MINIMUM_RESULT" = success
+          test "$AUDIT_RESULT" = success

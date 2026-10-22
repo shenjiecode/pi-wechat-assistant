@@ -3,7 +3,7 @@
 // ============================================================================
 
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from '@mariozechner/pi-coding-agent'
-import { debugLog } from '../shared/logger.js'
+import { debugLog, redactUrl } from '../shared/logger.js'
 import {
   clearCredentials,
   getCredentialsPath,
@@ -84,7 +84,7 @@ async function cmdLogin(args: string, ctx: Ctx, deps: CommandDeps): Promise<void
 
       if (result.redirectHost) {
         currentBaseUrl = `https://${result.redirectHost}`
-        debugLog(`重定向到: ${currentBaseUrl}`)
+        debugLog(`重定向到: ${redactUrl(currentBaseUrl)}`)
       }
 
       if (result.status === lastStatus) continue

@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import { getStateDir } from '../bridge/auth.js'
+import { getStateDir } from '../bridge/state-storage.js'
 const DEFAULT_PROMPT_URL = new URL('../../prompts/wechat.md', import.meta.url)
 
 export function getWechatPromptPath(): string {

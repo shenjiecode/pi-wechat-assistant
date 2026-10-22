@@ -28,9 +28,12 @@ vi.mock('../../src/bridge/config.js', () => ({
   saveConfig: vi.fn(async (config: BridgeConfig) => { state.config = config }),
   getConfigCache: vi.fn(() => state.config),
 }))
+vi.mock('../../src/bridge/state-storage.js', async () => ({
+  ...await vi.importActual<typeof import('../../src/bridge/state-storage.js')>('../../src/bridge/state-storage.js'),
+  getStateDir: () => process.cwd() + '/node_modules/.cache/wechat-bridge-test-state',
+}))
 vi.mock('../../src/bridge/auth.js', async () => ({
   ...await vi.importActual<typeof import('../../src/bridge/auth.js')>('../../src/bridge/auth.js'),
-  getStateDir: () => process.cwd() + '/node_modules/.cache/wechat-bridge-test-state',
   loadCredentials: vi.fn(async () => ({})),
   acquireLock: vi.fn(async (sessionId: string) => {
     if (state.lockConflict) return { success: false, message: '其他 pi 进程持有微信桥接锁（PID 424242）' }
