@@ -48,14 +48,34 @@ export function redactUrl(url: string | undefined): string {
   }
 }
 
+/** Prefer the outer code, then inspect at most three cause hops. Never stringify causes. */
+function findErrorCode(error: object): string | undefined {
+  const seen = new Set<object>()
+  let current: unknown = error
+  for (let depth = 0; depth <= 3; depth++) {
+    if (!current || typeof current !== 'object' || seen.has(current)) return undefined
+    seen.add(current)
+    try {
+      const code: unknown = (current as { code?: unknown }).code
+      if (typeof code === 'number' && Number.isFinite(code)) return String(code)
+      if (typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,39}$/.test(code)) return code
+      if (depth === 3) return undefined
+      current = (current as { cause?: unknown }).cause
+    } catch {
+      // A custom getter must not turn diagnostic formatting into another failure.
+      return undefined
+    }
+  }
+  return undefined
+}
+
 /** Errors can contain private paths, response bodies and URLs. Log codes only. */
 export function debugError(error: unknown): string {
   if (!error || typeof error !== 'object') return 'Error'
   const value = error as { name?: unknown; code?: unknown; status?: unknown }
   const name = ['Error', 'TypeError', 'RangeError', 'AbortError', 'TimeoutError', 'ApiError'].includes(String(value.name))
     ? String(value.name) : 'Error'
-  const code = typeof value.code === 'number' && Number.isFinite(value.code) ? String(value.code)
-    : typeof value.code === 'string' && /^[A-Z][A-Z0-9_]{0,39}$/.test(value.code) ? value.code : undefined
+  const code = findErrorCode(error)
   const status = typeof value.status === 'number' && Number.isFinite(value.status) ? value.status : undefined
   return [name, code === undefined ? '' : `code=${code}`, status === undefined ? '' : `status=${status}`].filter(Boolean).join(' ')
 }

@@ -35,7 +35,8 @@ export function checkArchitecture(sources) {
           ? !!node.importClause?.isTypeOnly || (!!node.importClause && !node.importClause.name
             && !!node.importClause.namedBindings && ts.isNamedImports(node.importClause.namedBindings)
             && node.importClause.namedBindings.elements.length > 0 && node.importClause.namedBindings.elements.every(item => item.isTypeOnly))
-          : node.isTypeOnly
+          : node.isTypeOnly || (!!node.exportClause && ts.isNamedExports(node.exportClause)
+            && node.exportClause.elements.length > 0 && node.exportClause.elements.every(item => item.isTypeOnly))
       } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
         specifier = node.arguments[0]
       }

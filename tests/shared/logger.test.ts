@@ -54,6 +54,47 @@ describe('debug log storage', () => {
 })
 
 describe('diagnostic metadata', () => {
+  it.each(['ENOTFOUND', 'ECONNREFUSED', 'CERT_HAS_EXPIRED'])('retains fetch cause code %s without private details', async (code) => {
+    const { debugError } = await import('../../src/shared/logger.js')
+    const cause = Object.assign(new Error('https://private.test/token /private/path'), { code })
+    expect(debugError(new TypeError('fetch failed: private message', { cause }))).toBe(`TypeError code=${code}`)
+  })
+
+  it('prefers a top-level code and retains top-level status', async () => {
+    const { debugError } = await import('../../src/shared/logger.js')
+    expect(debugError({ name: 'ApiError', code: -2, status: 403, cause: { code: 'ENOTFOUND' } })).toBe('ApiError code=-2 status=403')
+  })
+
+  it('skips invalid codes while following a bounded cause chain', async () => {
+    const { debugError } = await import('../../src/shared/logger.js')
+    expect(debugError({ name: 'TypeError', cause: { code: 'token=private', cause: { code: 'ECONNREFUSED', message: '/private/path' } } })).toBe('TypeError code=ECONNREFUSED')
+    expect(debugError({ name: 'TypeError', cause: 'private message' })).toBe('TypeError')
+  })
+
+  it('stops on cyclic causes', async () => {
+    const { debugError } = await import('../../src/shared/logger.js')
+    const error: { name: string; cause?: unknown } = { name: 'TypeError' }
+    error.cause = error
+    expect(debugError(error)).toBe('TypeError')
+  })
+
+  it('reads at most three cause hops', async () => {
+    const { debugError } = await import('../../src/shared/logger.js')
+    const atLimit = { cause: { cause: { cause: { code: 'ENOTFOUND' } } } }
+    expect(debugError(atLimit)).toBe('Error code=ENOTFOUND')
+    expect(debugError({ cause: atLimit })).toBe('Error')
+  })
+
+  it('does not evaluate messages or fail on an unreadable cause', async () => {
+    const { debugError } = await import('../../src/shared/logger.js')
+    const error = {
+      name: 'TypeError',
+      get message() { throw new Error('must not read private messages') },
+      get cause() { throw new Error('unreadable cause') },
+    }
+    expect(debugError(error)).toBe('TypeError')
+  })
+
   it('drops URL credentials, paths, queries, fragments and malformed URLs', async () => {
     const { redactUrl } = await import('../../src/shared/logger.js')
     expect(redactUrl('https://user:secret@example.test/private-file?token=secret#secret')).toBe('https://example.test')
