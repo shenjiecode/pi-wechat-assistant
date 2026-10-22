@@ -35,7 +35,7 @@ Documentation follows the project's full `main` URL convention. Until new pages 
 | Check | Local result |
 | --- | --- |
 | Environment | Windows, Node 24.19.0, npm 11.17.0 |
-| Automated tests | 275 passed: the existing 264 plus 11 log privacy/rotation and architecture-rule tests |
+| Automated tests | 288 passed: the existing 264 plus 11 initial log privacy/rotation and architecture-rule tests, and 13 follow-up regression cases |
 | Types and architecture | Passed; 27 source files checked for allowed domain dependencies, static runtime cycles and type-only Pi imports |
 | Pi API declarations | Passed for 0.73.1, 0.78.0, 0.84.0, 0.84.4, 0.99.2, 1.1.0, 1.2.0 and 1.4.0 |
 | Full dependency audit | Before: 22 findings (2 critical, 18 high, 1 moderate, 1 low); after: zero |
@@ -47,7 +47,16 @@ Documentation follows the project's full `main` URL convention. Until new pages 
 
 Audit figures are a 2026-10-22 lockfile/advisory snapshot, not a permanent security guarantee. Historical API compatibility is not advice to run an old Pi host with known advisories.
 
-After implementation validation, only the documentation index and this report were finalized, with documentation links and package contents rechecked. Runtime code was not changed again.
+## Review follow-up fixes
+
+Two review findings were fixed in commit `b9aee2e`:
+
+- Network failures now retain a valid error code from up to three `cause` hops, with the outer code taking precedence. Cycles and throwing getters terminate safely; messages, URLs and paths are not serialized. DNS, refused connections and expired certificates remain distinguishable without logging their private error text.
+- Named type-only re-exports such as `export { type X }` no longer create runtime-cycle edges. Mixed value/type exports, wildcard exports and empty exports still count as runtime dependencies; domain boundary checks still apply to type-only exports.
+
+Added 13 regression cases; seven failed before the fixes and all pass afterward. The focused suite passed 23 cases, `npm run check` passed all 288 tests, and all eight Pi API declaration checks passed again. Media download limits remain a separate follow-up; this patch does not change media handling.
+
+The [follow-up CI run](https://github.com/shenjiecode/pi-wechat-assistant/actions/runs/39797696940) for `b9aee2e` was queued when this report was updated. The successful CI result above belongs to the earlier implementation; it does not establish remote validation of this follow-up. Documentation links and package contents were rechecked after the report update.
 
 ## Repository settings remain separate
 
