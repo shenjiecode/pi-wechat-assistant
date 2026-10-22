@@ -21,6 +21,7 @@
 - [贡献指南](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.zh.md)：环境准备、检查命令与贡献约定。
 - [安全说明](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/SECURITY.zh.md)：敏感信息处理与漏洞报告方式。
 - [更新记录](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/CHANGELOG.md)：版本发布历史。
+- [2026-10-22 项目体检报告](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/project-review-2026-10-22.zh.md)：当时发现的问题、已落实改进与尚待验证事项。
 
 英文说明使用 `.md`，简体中文使用 `.zh.md`，每个页面提供语言切换链接。修改说明时请同步更新两个语言版本。
 

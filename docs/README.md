@@ -21,6 +21,7 @@ Start with the [project README](https://github.com/shenjiecode/pi-wechat-assista
 - [Contributing](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.md): environment setup, checks, and contribution conventions.
 - [Security](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/SECURITY.md): handling sensitive information and reporting vulnerabilities.
 - [Changelog](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/CHANGELOG.md): release history.
+- [Project review, 2026-10-22](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/project-review-2026-10-22.md): dated findings, implemented improvements and remaining verification.
 
 English documentation uses `.md`; Simplified Chinese uses `.zh.md`. Each page links to its translation. Keep both versions in sync when updating documentation.
 

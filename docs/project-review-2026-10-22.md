@@ -40,12 +40,14 @@ Documentation follows the project's full `main` URL convention. Until new pages 
 | Pi API declarations | Passed for 0.73.1, 0.78.0, 0.84.0, 0.84.4, 0.99.2, 1.1.0, 1.2.0 and 1.4.0 |
 | Full dependency audit | Before: 22 findings (2 critical, 18 high, 1 moderate, 1 low); after: zero |
 | Production dependency audit | Zero afterward; development findings do not directly establish user runtime exposure |
-| Local runtime smoke | Registration and mocked text submission passed on Node 24.19.0; not a local Node 20.3.0 run |
-| Documentation/package contents | Passed; final page and file counts will be rechecked after this report is finalized |
-| GitHub CI | Windows/Linux matrix and Node 20.3.0 smoke checks run after push; final results will be added to this report |
+| Local runtime smoke | Registration and mocked text submission passed on Node 24.19.0; older local Node downloads timed out, so minimum-runtime evidence comes from remote CI |
+| Documentation/package contents | Passed: 34 bilingual/community documentation pages, 166 repository links and 62 published files |
+| GitHub CI | All 10 jobs passed for implementation commit `e9fd8ef`: Windows/Linux × Node 20.19.0, 22 and 24; both Node 20.3.0 smoke jobs; production audit; CI success. See the [run record](https://github.com/shenjiecode/pi-wechat-assistant/actions/runs/39793566861) |
 | Real WeChat | No QR login or real-account delivery performed; end-to-end acceptance is not established |
 
 Audit figures are a 2026-10-22 lockfile/advisory snapshot, not a permanent security guarantee. Historical API compatibility is not advice to run an old Pi host with known advisories.
+
+After implementation validation, only the documentation index and this report were finalized, with documentation links and package contents rechecked. Runtime code was not changed again.
 
 ## Repository settings remain separate
 
