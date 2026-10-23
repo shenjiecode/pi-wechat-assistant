@@ -34,8 +34,8 @@ export async function acquireLock(sessionId: string) {
   return acquireBridgeLock(LOCK_FILE, sessionId)
 }
 export function releaseLock(sessionId: string) { return releaseBridgeLock(LOCK_FILE, sessionId) }
-export function requestHandoff(owner: Extract<BridgeLockState, { sessionId: string }>, signal?: AbortSignal) {
-  return requestBridgeHandoff(LOCK_FILE, owner, 30_000, signal)
+export function requestHandoff(owner: Extract<BridgeLockState, { sessionId: string }>, signal?: AbortSignal, onProgress?: (elapsedMs: number) => void) {
+  return requestBridgeHandoff(LOCK_FILE, owner, 30_000, signal, onProgress)
 }
 export function hasHandoffRequest(sessionId: string) { return handoffRequested(LOCK_FILE, sessionId) }
 // --- 二维码登录 ---

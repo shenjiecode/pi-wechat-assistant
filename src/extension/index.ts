@@ -12,6 +12,7 @@ import { SessionExpiredError, WeixinClient } from '../wechat/client.js'
 import { acquireLock, releaseLock, requestHandoff, hasHandoffRequest, loadCredentials, getBridgeLockState } from '../bridge/auth.js'
 import { registerWechatTools as registerSendTools, stoppedBridgeReason } from './send-tools.js'
 import { debugLog, debugError } from '../shared/logger.js'
+import { bridgeLockMetadata } from '../bridge/bridge-lock.js'
 import { splitAndFilterMarkdown } from '../messaging/message.js'
 import { MessageQueue } from '../bridge/queue.js'
 import { handleRemoteCommand, type RemoteCommandDeps } from './remote-commands.js'
@@ -127,7 +128,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     return lockSessionId
   }
 
-  async function lock(): Promise<{ success: boolean; message: string }> {
+  async function lock() {
     const id = getLockId()
     const result = await acquireLock(id)
     if (result.success) lockSessionId = id
@@ -185,6 +186,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       const requested = await hasHandoffRequest(id)
       if (!running || lockSessionId !== id) return
       if (requested) {
+        log(`[bridge-handoff] callerPid=${process.pid} event=request-received`)
         notify('收到微信桥接交接请求，正在停止本会话桥接并释放锁…', 'warning')
         await stopBridge({ releaseLock: true })
         return
@@ -192,6 +194,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       const state = await getBridgeLockState()
       if (!running || lockSessionId !== id) return
       if (state.kind === 'current' && state.sessionId === id) return
+      log(`[bridge-handoff] callerPid=${process.pid} event=ownership-changed ${bridgeLockMetadata(state)}`)
       notify('微信桥接锁归属已变化或无法确认，本会话正在停止，请检查 /wechat status。', 'warning')
       await stopBridge({ releaseLock: true })
     } catch (error) {
@@ -217,6 +220,8 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   }
 
   async function stopBridgeInner(options: { releaseLock?: boolean }): Promise<void> {
+    const startedAt = Date.now()
+    const trace = (phase: string) => log(`[bridge-stop] callerPid=${process.pid} phase=${phase} elapsedMs=${Math.max(0, Date.now() - startedAt)}`)
     const wasRunning = running
     running = false
     stopBridgeWatch()
@@ -235,18 +240,25 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     turn.reset()
     updateStatusBar()
     // Keep the lock until the old receiver and its persistent writes have settled.
+    trace('poll-drain')
     await pollTask?.catch(error => log(`轮询退出: ${debugError(error)}`))
     pollAbort = null
+    trace('send-drain')
     await sendsFinished
     if (wasRunning && client) {
+      trace('state-flush')
       await client.flushReceiveState()
+      trace('notify-stop')
       await client.notifyStop().catch(error => {
         log(`notifyStop 失败（不阻断停止）: ${debugError(error)}`)
         notify(`微信下线状态同步失败，本地桥接已停止：${formatError(error)}。详情见 /wechat status。`, 'warning')
       })
     }
+    trace('typing-stop')
     if (typingUser && client) await client.stopTyping(typingUser).catch(() => {})
+    trace('lock-release')
     if (options.releaseLock) await unlock()
+    trace('complete')
     updateStatusBar()
   }
 
@@ -392,7 +404,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     const config = await loadConfig()
     // TUI auto-start keeps the manual behaviour, including the takeover prompt;
     // headless modes show the plain lock diagnostic without prompting.
-    if (config.autoStart && client) await startBridge('', ctx, commandDeps, ctx.hasUI)
+    if (config.autoStart && client) await startBridge('', ctx, commandDeps, ctx.hasUI, 'auto-start')
   })
 
   // Transient model context only: never persist stale stop notices in the session.

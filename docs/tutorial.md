@@ -86,6 +86,8 @@ Saving either preference does not start the current bridge. Run `/wechat start` 
 
 The old session must support cooperative handoff (0.4.4+). Headless sessions never automatically take over. Handoff waits up to 30 seconds; an unresponsive owner, unknown lock or changed owner causes a failure rather than a forced lock deletion. Wait for the current task to finish, or cancel it deliberately, before switching if you need its final reply. Handoff does not promise to migrate an in-progress AI task.
 
+Progress shows elapsed waiting time every five seconds; release is followed by a notice that the current session is starting. If the owner did not declare handoff support, upgrade and restart that session, or run `/wechat stop` there first. A timeout ends the attempt: inspect the status before running `/wechat start` again. See the [maintenance guide](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.md) for diagnostic logs.
+
 An already-open process caches configuration. Reopen it after changing settings elsewhere. For lock errors, record the lock status and process ID; do not delete the whole state directory. `/wechat start!` is not a supported command.
 
 ## 5. Adjust noise and stop safely

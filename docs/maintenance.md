@@ -60,6 +60,12 @@ Keep the runtime Node floor separate from development tools and the user's Pi ho
 
 Debug logging is off unless `PI_WECHAT_DEBUG=1` is set before starting Pi. New logs record event types, lengths, counts, origins and error codes instead of message previews, account IDs, raw attachment objects, file names or full error text. `debugLog` itself is not a general secret scrubber: new call sites must pass only diagnostic metadata.
 
+For handoff troubleshooting, enable logs on both ends with separate output files. `[bridge-start]` records command/automatic startup, caller/owner PIDs, the protocol marker, failure reasons and elapsed time; `[bridge-handoff]` marks an owner receiving the request; `[bridge-stop]` identifies poll draining, send draining, state persistence, offline notification and lock release. Session IDs and credentials are excluded.
+
+`HANDOFF_UNSUPPORTED` means the owner did not declare cooperative handoff support: upgrade and restart the owner, or run `/wechat stop` there first. `HANDOFF_NON_INTERACTIVE` means the current mode cannot take over automatically. `LOCK_CONFLICT` means ownership was occupied when acquisition was attempted. `HANDOFF_OWNER_CHANGED`, `HANDOFF_LOCK_UNKNOWN` and `HANDOFF_TIMEOUT` distinguish ownership changes, uncertain lock state and timeout. These diagnostics do not establish the owner's actual extension version.
+
+While waiting, progress appears every five seconds; successful handoff reports the old owner's release. A timeout ends that startup attempt with no background retry. Record both extension versions, whether `/reload` was used, elapsed time and relevant sanitized logs, then inspect `/wechat status` before retrying.
+
 The log rotates at approximately 1 MiB to one `.1` backup; individual messages are bounded to 1,000 characters and control characters are flattened. Rotation is best effort across processes, not a transactionally exact disk quota. Use a separate file per process when debugging concurrent sessions. Files created by older versions may still contain private data; updating does not sanitize old logs.
 
 For one PowerShell session, using a project-local output directory:

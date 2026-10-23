@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { acquireBridgeLock, releaseBridgeLock, requestBridgeHandoff, handoffRequested } from '../../src/bridge/bridge-ownership.js'
@@ -13,7 +13,7 @@ describe('cooperative ownership with real filesystem contention', () => {
     directory = await fs.mkdtemp(path.join(root, 'bridge-ownership-'))
     file = path.join(directory, 'session.lock')
   })
-  afterEach(async () => { await fs.rm(directory, { recursive: true, force: true }) })
+  afterEach(async () => { vi.restoreAllMocks(); await fs.rm(directory, { recursive: true, force: true }) })
   const owner = () => ({ kind: 'current' as const, pid: process.pid, sessionId: 'old', protocol: 1 })
 
   it('allows only one concurrent acquisition', async () => {
@@ -41,7 +41,7 @@ describe('cooperative ownership with real filesystem contention', () => {
 
   it('leaves the old lock intact on timeout and removes the request', async () => {
     await acquireBridgeLock(file, 'old')
-    await expect(requestBridgeHandoff(file, owner(), 40)).rejects.toThrow('超时')
+    await expect(requestBridgeHandoff(file, owner(), 40)).rejects.toMatchObject({ code: 'HANDOFF_TIMEOUT', message: expect.stringContaining('不会继续后台重试') })
     expect(await inspectBridgeLock(file)).toMatchObject({ sessionId: 'old' })
     expect(await handoffRequested(file, 'old')).toBe(false)
   })
@@ -66,8 +66,61 @@ describe('cooperative ownership with real filesystem contention', () => {
 
   it('requires manual stop for legacy owners', async () => {
     await fs.writeFile(file, JSON.stringify({ pid: process.pid, sessionId: 'legacy' }))
-    await expect(requestBridgeHandoff(file, { ...owner(), sessionId: 'legacy', protocol: undefined })).rejects.toThrow('不支持')
+    await expect(requestBridgeHandoff(file, { ...owner(), sessionId: 'legacy', protocol: undefined })).rejects.toMatchObject({ code: 'HANDOFF_UNSUPPORTED' })
     expect(await inspectBridgeLock(file)).toMatchObject({ sessionId: 'legacy' })
+  })
+
+  it('reports wait progress at most once per five seconds and stops after release', async () => {
+    let now = 1_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const progress = vi.fn()
+    await acquireBridgeLock(file, 'old')
+    const pending = requestBridgeHandoff(file, owner(), 30_000, undefined, progress)
+    await expect.poll(() => progress.mock.calls.length).toBe(1)
+    expect(progress).toHaveBeenLastCalledWith(0)
+    now += 5_000
+    await expect.poll(() => progress.mock.calls.length).toBe(2)
+    expect(progress).toHaveBeenLastCalledWith(5_000)
+    now += 1_000
+    await new Promise(resolve => setTimeout(resolve, 150))
+    expect(progress).toHaveBeenCalledTimes(2)
+    await releaseBridgeLock(file, 'old')
+    await pending
+    now += 5_000
+    await new Promise(resolve => setTimeout(resolve, 150))
+    expect(progress).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not let a failed progress observer interrupt handoff', async () => {
+    await acquireBridgeLock(file, 'old')
+    const progress = vi.fn(() => { throw new Error('UI unavailable') })
+    const pending = requestBridgeHandoff(file, owner(), 2_000, undefined, progress)
+    await expect.poll(() => progress.mock.calls.length).toBe(1)
+    await releaseBridgeLock(file, 'old')
+    await pending
+    expect(await inspectBridgeLock(file)).toEqual({ kind: 'missing' })
+  })
+
+  it('reports ownership changes during a pending handoff without replacing the new owner', async () => {
+    await acquireBridgeLock(file, 'old')
+    const pending = requestBridgeHandoff(file, owner(), 2_000)
+    const rejected = expect(pending).rejects.toMatchObject({ code: 'HANDOFF_OWNER_CHANGED' })
+    await expect.poll(() => handoffRequested(file, 'old')).toBe(true)
+    await fs.writeFile(file, JSON.stringify({ pid: process.pid, sessionId: 'new', protocol: 1 }))
+    await rejected
+    expect(await inspectBridgeLock(file)).toMatchObject({ sessionId: 'new' })
+    expect(await handoffRequested(file, 'old')).toBe(false)
+  })
+
+  it('distinguishes unreadable lock state from changed ownership during handoff', async () => {
+    await acquireBridgeLock(file, 'old')
+    const pending = requestBridgeHandoff(file, owner(), 2_000)
+    const rejected = expect(pending).rejects.toMatchObject({ code: 'HANDOFF_LOCK_UNKNOWN' })
+    await expect.poll(() => handoffRequested(file, 'old')).toBe(true)
+    await fs.writeFile(file, 'invalid-json')
+    await rejected
+    expect(await fs.readFile(file, 'utf8')).toBe('invalid-json')
+    expect(await handoffRequested(file, 'old')).toBe(false)
   })
 
   it('serializes stale-lock cleanup as well as initial creation', async () => {
