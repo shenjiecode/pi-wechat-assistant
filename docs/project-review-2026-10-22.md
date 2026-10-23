@@ -6,7 +6,7 @@ English | [简体中文](https://github.com/shenjiecode/pi-wechat-assistant/blob
 
 The project already has domain-based source organization, cross-platform tests, a release workflow, configuration compatibility and bilingual documentation. The most useful next improvements are helping a new user complete a task, making release evidence clear, and collecting less private content during debugging.
 
-These changes are on `codex/project-quality-and-guides`. No version bump, npm publication or main-branch merge was performed. Issue #31's command behavior is unchanged, and documentation work does not close that issue.
+These changes are on `codex/project-quality-and-guides`. No version bump, npm publication or main-branch merge was performed. Issue #31's command behavior is unchanged. After the reporter confirmed the existing handoff workflow worked, #31 was closed on October 23; #33 separately tracks the preceding lock errors.
 
 ## Implemented changes
 
@@ -35,13 +35,13 @@ Documentation follows the project's full `main` URL convention. Until new pages 
 | Check | Local result |
 | --- | --- |
 | Environment | Windows, Node 24.19.0, npm 11.17.0 |
-| Automated tests | 288 passed: the existing 264 plus 11 initial log privacy/rotation and architecture-rule tests, and 13 follow-up regression cases |
+| Automated tests | 305 passed: the existing 264 plus 11 initial log/architecture cases, 13 review regressions and 17 handoff diagnostic/progress cases |
 | Types and architecture | Passed; 27 source files checked for allowed domain dependencies, static runtime cycles and type-only Pi imports |
 | Pi API declarations | Passed for 0.73.1, 0.78.0, 0.84.0, 0.84.4, 0.99.2, 1.1.0, 1.2.0 and 1.4.0 |
 | Full dependency audit | Before: 22 findings (2 critical, 18 high, 1 moderate, 1 low); after: zero |
 | Production dependency audit | Zero afterward; development findings do not directly establish user runtime exposure |
 | Local runtime smoke | Registration and mocked text submission passed on Node 24.19.0; older local Node downloads timed out, so minimum-runtime evidence comes from remote CI |
-| Documentation/package contents | Passed: 34 bilingual/community documentation pages, 166 repository links and 62 published files |
+| Documentation/package contents | Passed: 34 bilingual/community documentation pages, 168 repository links and 62 published files |
 | GitHub CI | All 10 jobs passed for implementation commit `e9fd8ef`: Windows/Linux × Node 20.19.0, 22 and 24; both Node 20.3.0 smoke jobs; production audit; CI success. See the [run record](https://github.com/shenjiecode/pi-wechat-assistant/actions/runs/39793566861) |
 | Real WeChat | No QR login or real-account delivery performed; end-to-end acceptance is not established |
 
@@ -56,7 +56,19 @@ Two review findings were fixed in commit `b9aee2e`:
 
 Added 13 regression cases; seven failed before the fixes and all pass afterward. The focused suite passed 23 cases, `npm run check` passed all 288 tests, and all eight Pi API declaration checks passed again. Media download limits remain a separate follow-up; this patch does not change media handling.
 
-The [follow-up CI run](https://github.com/shenjiecode/pi-wechat-assistant/actions/runs/39797696940) for `b9aee2e` was queued when this report was updated. The successful CI result above belongs to the earlier implementation; it does not establish remote validation of this follow-up. Documentation links and package contents were rechecked after the report update.
+All 10 jobs also passed for the previous review-fix snapshot `c5dbde7`; see its [CI run](https://github.com/shenjiecode/pi-wechat-assistant/actions/runs/39797859910).
+
+## October 23: handoff diagnostics and progress
+
+The screenshots in #31 show rejected startup attempts followed by a successful start. An owner that has not loaded handoff support or concurrent lock acquisition are possible explanations, not an established root cause. #33 retains the screenshot and asks the reporter to add future occurrences there.
+
+- Explain undeclared handoff support, non-interactive startup, uncertain locks, acquisition contention, owner changes and timeouts separately. `/wechat status` also shows the handoff setting and the owner's declared support.
+- Show elapsed waiting progress every five seconds, followed by an explicit release notice. Timeout clearly ends the attempt without a background retry.
+- Log only caller/owner PIDs, declared protocol, source, phases, reason codes and durations. Owner-side phases identify poll/send draining, state persistence, offline notification and lock release; session IDs, credentials and raw error text are excluded.
+
+Added 17 regression cases, including throttled progress, cancellation, observer failures, changed/unknown owners, privacy and retaining the lock while sends drain. The focused suite passed 152 cases; all 305 tests and all eight Pi API checks passed. Documentation/package checks passed again. Streaming media limits remain separate.
+
+All 10 [remote CI jobs](https://github.com/shenjiecode/pi-wechat-assistant/actions/runs/39942156961) passed for implementation commit `e7110ee`, including the Linux/Windows matrix, both minimum-runtime smoke checks, production audit and aggregate. The subsequent report update passed documentation/package checks. The change is in PR #32 and has not been released; real-account acceptance is still required.
 
 ## Repository settings remain separate
 
