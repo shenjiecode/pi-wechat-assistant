@@ -63,6 +63,7 @@ Keep the computer and pi running. Only the bound WeChat user is accepted, and on
 
 ### Guides
 
+- [Hands-on tutorial](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/tutorial.md): real replies, files, and automatic session handoff.
 - [Quick start](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/quickstart.md): setup and your first verified reply.
 - [Upgrading](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/upgrading.md): update, restart, and preserve settings.
 - [FAQ and troubleshooting](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.md): login, missing replies, session handoff, and files.

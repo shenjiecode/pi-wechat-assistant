@@ -27,6 +27,8 @@
 
 `/wechat config handoff auto` 可在交互界面中跳过协作交接确认；无界面会话不会自动接管。交接转移的是桥接，不会搬移旧对话历史，也不会取消旧 AI 任务。不要通过手动删除活跃会话的锁文件绕过归属检查。
 
+这个配置同时适用于手动 `/wechat start` 和自动启动，保存配置本身不会立即切换桥接。执行 `/wechat config auto-start on` 时，如果尚未开启自动接管，会引导选择推荐的自动接管；也可在 `/wechat config` →「持锁接管方式」→「自动接管」中设置。验证步骤和 30 秒超时行为见[双会话实操教程](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/tutorial.zh.md)。目前不支持 `/wechat start!`。
+
 ## 电脑上的对话没有同步到微信
 
 从 0.6.0 起默认如此，微信任务仍能收到自己的回复。在 pi 执行 `/wechat config bidirectional on` 可同步新的电脑输入及回复。已有显式设置会保留，历史消息不会重发。

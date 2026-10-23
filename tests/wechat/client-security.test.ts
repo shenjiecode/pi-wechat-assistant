@@ -16,7 +16,10 @@ const mocks = vi.hoisted(() => ({
   loadSeenIds: vi.fn(),
   saveSeenIds: vi.fn(),
   notifyNeedsFreshContext: vi.fn(),
+  debugLog: vi.fn(),
 }))
+
+vi.mock('../../src/shared/logger.js', () => ({ debugLog: mocks.debugLog }))
 
 vi.mock('../../src/wechat/api.js', async () => ({
   ...await vi.importActual<typeof import('../../src/wechat/api.js')>('../../src/wechat/api.js'),
@@ -73,6 +76,26 @@ describe('WeixinClient sender authorization', () => {
     mocks.loadSeenIds.mockResolvedValue(new Set<string>())
     mocks.saveCursor.mockResolvedValue(undefined)
     mocks.saveSeenIds.mockResolvedValue(undefined)
+  })
+
+  it('logs message metadata without text, identities or attachment secrets', async () => {
+    const message = {
+      ...rawMessage('private-message-id', 'bound-user'),
+      item_list: [
+        { type: 1, text_item: { text: 'private conversation' } },
+        { type: 2, image_item: { aeskey: 'private-aes-key', media: { full_url: 'https://example.test/private-image?token=private-token' } } },
+      ],
+    }
+    mocks.apiGetUpdates.mockResolvedValue({ msgs: [message, rawMessage('other-id', 'private-other-user')], get_updates_buf: 'cursor' })
+    const client = await WeixinClient.create(credentials)
+    const messages = await client.getUpdates()
+    expect(messages).toHaveLength(1)
+    expect(messages[0].text).toBe('private conversation')
+    const logged = mocks.debugLog.mock.calls.flat().join('\n')
+    expect(logged).toContain('items=2')
+    for (const secret of ['private conversation', 'bound-user', 'private-message-id', 'private-aes-key', 'private-image', 'private-token', 'private-other-user']) {
+      expect(logged).not.toContain(secret)
+    }
   })
 
   it('drains an in-flight send and rejects new sends until resumed', async () => {

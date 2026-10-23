@@ -4,14 +4,13 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import type { ExtensionContext, ExtensionCommandContext } from '@mariozechner/pi-coding-agent'
-import { debugLog } from '../shared/logger.js'
+import { debugLog, debugError, redactUrl } from '../shared/logger.js'
 import { WeixinClient } from '../wechat/client.js'
 import { fetchImageAsBase64, fetchFile, saveFileToDisk, type ImageData } from '../wechat/media.js'
 import {
   MAX_IMAGE_PREFETCH_CONCURRENCY,
 } from '../shared/constants.js'
 import { summarizePreview, formatError, extractTextFromMessageContent } from '../shared/utils.js'
-import { redactUrl } from '../shared/logger.js'
 import type { IncomingMessage } from '../wechat/types.js'
 import { getConfigCache } from './config.js'
 import { resolveImageBatchWaitMs, resolveImageMaxBytes, receiptText } from './config-values.js'
@@ -120,7 +119,7 @@ export class MessageQueue {
     const hasImages = imageCount > 0
     const hasText = !!message.text
     const hasFile = !!message.fileEncryptParam
-    log(`[ENQUEUE] type=${message.type} text=${message.text?.slice(0, 40)} images=${imageCount} hasFile=${hasFile} queueBefore=${this.queue.length} agentIdle=${this.getAgentIdle()} batchTimer=${!!this.batchTimer}`)
+    log(`[ENQUEUE] type=${message.type} textLen=${message.text?.length ?? 0} images=${imageCount} hasFile=${hasFile} queueBefore=${this.queue.length} agentIdle=${this.getAgentIdle()} batchTimer=${!!this.batchTimer}`)
 
     const client = this.getClient()
 
@@ -134,7 +133,7 @@ export class MessageQueue {
     // 文件：立即下载保存 + 自动回复，不入队，不参与计时器
     if (hasFile) {
       const download = this._handleFile(message, this.generation).catch(error => {
-        log(`[FILE-ERROR] ${formatError(error)}`)
+        log(`[FILE-ERROR] ${debugError(error)}`)
       })
       this.fileDownloads.add(download)
       void download.finally(() => this.fileDownloads.delete(download))
@@ -185,7 +184,7 @@ export class MessageQueue {
     if (hasImages) {
       if (!this.imageBatchAckSent && client && getConfigCache().sendAck !== false) {
         this.imageBatchAckSent = true
-        void client.sendText(message.userId, receiptText(getConfigCache(), true)).catch(err => log(`[IMAGE-ACK-FAIL] ${formatError(err)}`))
+        void client.sendText(message.userId, receiptText(getConfigCache(), true)).catch(err => log(`[IMAGE-ACK-FAIL] ${debugError(err)}`))
       }
       this.restartBatchTimer('图片')
       return
@@ -204,7 +203,7 @@ export class MessageQueue {
     const buffer = await fetchFile(message.fileEncryptParam!, message.fileAesKey, this.getPollSignal())
     if (generation !== this.generation || !this.isRunning()) return
     if (!buffer) {
-      log(`[FILE-DL-FAIL] ${fileName}`)
+      log('[FILE-DL-FAIL] download failed')
       if (client) void client.sendText(message.userId, `⚠️ 文件下载失败: ${fileName}`).catch(() => {})
       return
     }
@@ -217,12 +216,12 @@ export class MessageQueue {
     const savedPath = await saveFileToDisk(buffer, fileName, wechatFilesDir)
     if (generation !== this.generation || !this.isRunning()) return
     if (!savedPath) {
-      log(`[FILE-SAVE-FAIL] 保存失败: ${fileName}`)
+      log('[FILE-SAVE-FAIL] 保存失败')
       return
     }
 
     this.accumulatedFiles.push({ name: fileName, size: buffer.length, path: savedPath })
-    log(`[FILE-SAVED] ${fileName} (${(buffer.length / 1024).toFixed(1)} KB) → ${savedPath}`)
+    log(`[FILE-SAVED] bytes=${buffer.length}`)
 
     if (client) {
       const kb = (buffer.length / 1024).toFixed(1)
@@ -269,7 +268,7 @@ export class MessageQueue {
       await this._doDrain()
     } catch (error) {
       if (generation !== this.generation) return
-      log(`[DRAIN-ERROR] ${formatError(error)}`)
+      log(`[DRAIN-ERROR] ${debugError(error)}`)
       const request = this.pendingInjection
       this.pendingInjection = null
       if (request) {
@@ -389,7 +388,7 @@ export class MessageQueue {
       log(`[DRAIN-SEND] image+text, images=${images.length}, mode=followUp`)
       this.submit(content, first)
     } else if (hasText) {
-      log(`[DRAIN-SEND] text, text=${texts.join(' ').slice(0, 80)}, mode=followUp`)
+      log(`[DRAIN-SEND] text, textLen=${texts.join(' ').length}, mode=followUp`)
       this.submit(texts.join('\n'), first)
     } else {
       if (hadImageMessages) {
@@ -407,7 +406,7 @@ export class MessageQueue {
       try {
         await client.sendText(first.userId, receiptText(getConfigCache()))
       } catch (err) {
-        log(`发送回执失败: ${formatError(err)}`)
+        log(`发送回执失败: ${debugError(err)}`)
       }
     }
   }

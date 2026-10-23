@@ -6,6 +6,7 @@ Start with the [project README](https://github.com/shenjiecode/pi-wechat-assista
 
 ## User guides
 
+- [Hands-on tutorial](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/tutorial.md): follow a task from the first reply through files and a two-session handoff.
 - [Quick start](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/quickstart.md): install, connect, and verify your first reply.
 - [Upgrading](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/upgrading.md): update the installed source, restart, and preserve settings.
 - [FAQ and troubleshooting](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.md): missing replies, session handoff, receipts, and files.
@@ -15,10 +16,12 @@ Start with the [project README](https://github.com/shenjiecode/pi-wechat-assista
 
 ## Development
 
+- [Maintenance and acceptance](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.md): CI evidence, dependency updates, safe diagnostics and real-account release checks.
 - [Architecture](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/architecture.md): directory responsibilities and runtime flow.
 - [Contributing](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.md): environment setup, checks, and contribution conventions.
 - [Security](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/SECURITY.md): handling sensitive information and reporting vulnerabilities.
 - [Changelog](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/CHANGELOG.md): release history.
+- [Project review, 2026-10-22](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/project-review-2026-10-22.md): dated findings, implemented improvements and remaining verification.
 
 English documentation uses `.md`; Simplified Chinese uses `.zh.md`. Each page links to its translation. Keep both versions in sync when updating documentation.
 
