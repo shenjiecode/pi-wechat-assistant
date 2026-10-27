@@ -33,6 +33,7 @@ assets/                        标志与包封面
 | `extension/index.ts` | 注册 Pi 事件与工具，协调桥接生命周期和轮次状态 |
 | `extension/commands.ts`, `remote-commands.ts` | 桥接生命周期命令与微信命令 |
 | `extension/config-commands.ts`, `config-menu.ts` | 配置及模板命令、对话框与等待任务结束的协调 |
+| `extension/command-completion.ts` | Pi 编辑器中的 `/wechat` 子命令与参数补全 |
 | `extension/send-tools.ts` | 发送工具注册、文件校验与实时桥接状态检查 |
 | `extension/model-failure.ts`, `status.ts` | Pi 失败事件兼容及状态展示 |
 | `bridge/auth.ts` | 登录凭据与锁操作入口；保留兼容导出 |

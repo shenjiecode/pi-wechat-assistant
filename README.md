@@ -57,6 +57,8 @@ Scan and confirm in WeChat. Login attempts to start the bridge automatically; se
 | `/wechat status` | Check running state and send results |
 | `/wechat config` | Configure mirroring, receipts, images, and reply templates |
 
+Press Tab after `/wechat ` to complete subcommands, and keep pressing it to complete their arguments (for example `/wechat config handoff auto`).
+
 In WeChat, send `/help` for remote commands. **WeChat `/stop` cancels the AI task; pi `/wechat stop` stops the bridge.**
 
 Keep the computer and pi running. Only the bound WeChat user is accepted, and one bridge can own the shared local account state at a time. Desktop mirroring is off by default. File-only messages are saved; follow with text to request processing. See the FAQ for sending limits and troubleshooting.
