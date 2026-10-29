@@ -57,7 +57,7 @@ pi install npm:pi-wechat-assistant
 | `/wechat status` | 查看运行状态和发送结果 |
 | `/wechat config` | 设置桌面同步、回执、图片和回复模板 |
 
-在 `/wechat ` 后按 Tab 补全子命令，再按 Tab 继续补全参数（例如 `/wechat config handoff auto`）。
+在 `/wechat ` 后按 Tab 补全子命令及其参数（例如 `/wechat config handoff auto`）。补全只替换正在输入的单词、不会自动补空格，因此继续补全下一个参数前需先输入空格。
 
 微信里输入 `/help` 查看远程命令。**微信 `/stop` 取消 AI 任务；pi 中的 `/wechat stop` 停止桥接。**
 

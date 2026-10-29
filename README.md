@@ -57,7 +57,7 @@ Scan and confirm in WeChat. Login attempts to start the bridge automatically; se
 | `/wechat status` | Check running state and send results |
 | `/wechat config` | Configure mirroring, receipts, images, and reply templates |
 
-Press Tab after `/wechat ` to complete subcommands, and keep pressing it to complete their arguments (for example `/wechat config handoff auto`).
+Press Tab after `/wechat ` to complete subcommands and their arguments (for example `/wechat config handoff auto`). Completion replaces the word being typed and does not add a space, so type a space before pressing Tab to complete the next argument.
 
 In WeChat, send `/help` for remote commands. **WeChat `/stop` cancels the AI task; pi `/wechat stop` stops the bridge.**
 
