@@ -494,6 +494,10 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   // rules section to every run while the bridge runs; the section itself limits
   // application to requests that start with the WeChat marker.
   pi.on('before_agent_start', (event, ctx) => {
+    // Modern Pi normalizes the starting images after this hook, changing both
+    // image bytes and text. Bind only the exact input observed before the hook.
+    // Custom starts and older hosts without these fields must not inherit it.
+    queue.prepareImageRun('prompt' in event ? event.prompt : undefined, 'images' in event ? event.images : undefined)
     latestCtx = ctx
     agentPreparing = true
     modelFailure.reset()
@@ -588,6 +592,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   // 补发依赖 event.messages 为“本次 run”的范围假设，omp -c 恢复会话后
   // messages 含全量历史，slice(sentCount) 会把历史回复全部重发到微信）
   pi.on('agent_end', async (event, ctx) => {
+    queue.clearPreparedRun()
     latestCtx = ctx
     agentIdle = true
     agentPreparing = false
@@ -624,6 +629,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   ) => unknown
   const boundarySubscription = onSettlement('agent_before_settle', event => { modelFailure.beforeSettle(event.outcome ?? '') })
   onSettlement('agent_settled', async (event, ctx) => {
+    queue.clearPreparedRun()
     latestCtx = ctx
     const sending = sendModelFailure(failureNoticeMode(ctx, boundarySubscription), event.aborted === true)
     modelFailure.reset()

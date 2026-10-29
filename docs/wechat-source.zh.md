@@ -12,7 +12,7 @@
 
 `/wechat start` 和 `/wechat status` 会说明共享桥接锁的归属。其他存活进程持锁且支持交接（0.4.4+）时，交互式 `/wechat start` 会请求确认，最多等待 30 秒让旧桥接停止并释放锁。旧版需在原会话执行 `/wechat stop`；超时或归属不明时不强行接管。PID 存活只说明持锁进程存在，不证明它正在正常轮询。未发现锁或确认原进程退出时允许启动；锁内容损坏、不可读、权限不足或无法探测时保持“无法确认”，不自动覆盖。这项诊断不提供跨进程消息转发。
 
-已针对 Pi 0.73.1、0.78.0、0.84.0、0.84.4、0.99.2、1.1.0、1.2.0 的发布 API 检查兼容性。参见[旧版动态工具示例](https://github.com/earendil-works/pi/blob/v0.73.1/packages/coding-agent/examples/extensions/dynamic-tools.ts)和[新版工具可见性契约](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/src/core/extensions/types.ts)。
+已针对 Pi 0.73.1、0.78.0、0.84.0、0.84.4、0.99.2、1.1.0、1.2.0、1.4.0 的发布 API 检查兼容性。参见[旧版动态工具示例](https://github.com/earendil-works/pi/blob/v0.73.1/packages/coding-agent/examples/extensions/dynamic-tools.ts)和[新版工具可见性契约](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/src/core/extensions/types.ts)。
 
 来源标识、微信回复模板和提问工具守卫共用一个开关，**默认开启**：
 
@@ -75,8 +75,8 @@
 
 ## 兼容验证
 
-`npm run typecheck:pi` 针对 pi **0.73.1、0.78.0、0.84.0、0.84.4、0.99.2、1.1.0、1.2.0** 的已发布 API 检查类型。脚本校验下载包完整性，缓存放在项目的 `node_modules/.cache`，不替换本地依赖。`npm test` 覆盖新旧启动事件形式、工具启停、来源路由、忙碌时追加消息、模板重载、混合媒体和格式转换。自动检查不连接真实微信账号或模型服务。
+`npm run typecheck:pi` 针对 pi **0.73.1、0.78.0、0.84.0、0.84.4、0.99.2、1.1.0、1.2.0、1.4.0** 的已发布 API 检查类型。脚本校验下载包完整性，缓存放在项目的 `node_modules/.cache`，不替换本地依赖。`npm test` 覆盖新旧启动事件形式、工具启停、来源路由、忙碌时追加消息、模板重载、混合媒体和格式转换。自动检查不连接真实微信账号或模型服务。
 
-实现使用稳定的 `sendUserMessage`、`input`、消息生命周期、`tool_call` 和活动工具接口；每次投递显式指定 `deliverAs: "followUp"`。观察到 `before_agent_start` 准备阶段时暂缓投递，在 `agent_start` 和消息消费时继续处理队列；不依赖启动事件的 `prompt`、新版 `messageType` 联合类型或系统提示词分区。
+实现使用稳定的 `sendUserMessage`、`input`、消息生命周期、`tool_call` 和活动工具接口；每次投递显式指定 `deliverAs: "followUp"`。观察到 `before_agent_start` 准备阶段时暂缓投递，在 `agent_start` 和消息消费时继续处理队列。对于启动任务的图片，若 `before_agent_start` 提供 `prompt` 和 `images`，会用完整内容（包括原始图片字节）匹配此前观察到的输入，并将该记录一次性关联到本轮第一条用户消息。因此 Pi 1.4.0 缩放、重新编码、添加提示或丢弃无效图片后，来源仍正确；不改写历史，不凭标识或纯文字匹配认定来源。交互式、RPC 和未匹配桥接投递的扩展输入仍不是微信消息。忙碌时追加的消息及不提供准备阶段元数据的宿主保留完整内容精确匹配；自定义消息启动、任务结束和桥接重置都会清除准备阶段关联。仅使用公开生命周期事件，不使用宿主私有 API 或系统提示词分区。
 
 参考：[pi 1.2.0 扩展约定](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/extensions.md)、[pi 1.2.0 启动并发变化](https://github.com/earendil-works/pi/releases/tag/v1.2.0)、[pi 0.73.1 动态工具示例](https://github.com/earendil-works/pi/blob/v0.73.1/packages/coding-agent/examples/extensions/dynamic-tools.ts)。

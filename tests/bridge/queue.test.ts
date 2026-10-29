@@ -322,6 +322,97 @@ describe('WeChat submissions and origin tracking', () => {
   })
 })
 
+describe('image normalization at the run boundary', () => {
+  const image = (data: string) => ({ type: 'image' as const, mimeType: 'image/png', data })
+  const content = (text: string, data: string) => [{ type: 'text' as const, text }, image(data)]
+  const normalized = content('same text\n\n[Pi resize hint]', 'resized')
+
+  async function submittedImage(agentIdle = true, data = 'original') {
+    vi.mocked(fetchImageAsBase64).mockResolvedValue({ data, mediaType: 'image/png' })
+    const test = makeQueue({ client: testClient(), agentIdle })
+    test.queue.enqueue(makeMsg({ text: 'same text', imageUrls: [{ url: 'https://example.com/image.png' }] }))
+    await vi.waitFor(() => expect(test.sendUserMessage).toHaveBeenCalledOnce())
+    return test
+  }
+
+  it('does not authorize changed image content from a preparation event without an observed input', async () => {
+    const { queue } = await submittedImage()
+    queue.prepareImageRun('same text', [image('original')])
+    expect(queue.consumeSubmittedRequest(normalized)).toBeNull()
+    // Legacy/exact matching remains available without the new run binding.
+    expect(queue.consumeSubmittedRequest(content('same text', 'original'))?.userId).toBe('user_1')
+  })
+
+  it.each(['interactive', 'rpc', 'extension'])('rejects %s inputs with the same text but different image bytes', async source => {
+    const { queue } = await submittedImage()
+    queue.observeInput('same text', [image('unrelated')], source)
+    queue.prepareImageRun('same text', [image('unrelated')])
+    expect(queue.consumeSubmittedRequest(normalized)).toBeNull()
+    expect(queue.pendingInjection).not.toBeNull()
+  })
+
+  it.each(['interactive', 'rpc'])('keeps a negative %s observation even with identical original bytes', async source => {
+    const { queue } = await submittedImage()
+    queue.observeInput('same text', [image('original')], source)
+    queue.observeInput('same text', [image('original')], 'extension')
+    queue.prepareImageRun('same text', [image('original')])
+    expect(queue.consumeSubmittedRequest(normalized)).toBeNull()
+    queue.prepareImageRun('same text', [image('original')])
+    expect(queue.consumeSubmittedRequest(normalized)?.userId).toBe('user_1')
+  })
+
+  it('requires an exact preparation match rather than matching only the prompt', async () => {
+    const { queue } = await submittedImage()
+    queue.observeInput('same text', [image('original')], 'extension')
+    queue.prepareImageRun('same text', [image('changed-before-preparation')])
+    expect(queue.consumeSubmittedRequest(normalized)).toBeNull()
+    expect(queue.pendingInjection).not.toBeNull()
+  })
+
+  it('consumes the prepared input only once and clears pendingInjection', async () => {
+    const { queue } = await submittedImage()
+    const request = queue.observeInput('same text', [image('original')], 'extension')
+    queue.prepareImageRun('same text', [image('original')])
+    expect(queue.consumeSubmittedRequest(normalized)).toBe(request)
+    expect(queue.pendingInjection).toBeNull()
+    expect(queue.consumeSubmittedRequest(normalized)).toBeNull()
+  })
+
+  it.each(['reset', 'discard', 'end', 'custom', 'text'])('clears the prepared binding on %s', async action => {
+    const { queue } = await submittedImage()
+    const request = queue.observeInput('same text', [image('original')], 'extension')!
+    queue.prepareImageRun('same text', [image('original')])
+    if (action === 'reset') queue.reset()
+    if (action === 'discard') queue.discardSubmittedRequest(request)
+    if (action === 'end') queue.clearPreparedRun()
+    if (action === 'custom') queue.prepareImageRun()
+    if (action === 'text') queue.prepareImageRun('next text-only run')
+    expect(queue.consumeSubmittedRequest(normalized)).toBeNull()
+  })
+
+  it('does not let queued follow-ups replace the starting image binding', async () => {
+    const { queue, sendUserMessage } = await submittedImage(false)
+    const first = queue.observeInput('same text', [image('original')], 'extension')!
+    queue.prepareImageRun('same text', [image('original')])
+    vi.mocked(fetchImageAsBase64).mockResolvedValue({ data: 'second', mediaType: 'image/png' })
+    queue.enqueue(makeMsg({ messageId: 'second', text: 'same text', imageUrls: [{ url: 'https://example.com/second.png' }] }))
+    await vi.waitFor(() => expect(sendUserMessage).toHaveBeenCalledTimes(2))
+    const second = queue.observeInput('same text', [image('second')], 'extension')!
+    expect(queue.consumeSubmittedRequest(normalized)).toBe(first)
+    // Pi busy follow-ups bypass starting-image normalization and use exact keys.
+    expect(queue.consumeSubmittedRequest(content('same text', 'second'))).toBe(second)
+    expect(first).not.toBe(second)
+  })
+
+  it('does not steal an unobserved submission when a normalized desktop image matches it', async () => {
+    const { queue } = await submittedImage(false, 'resized')
+    queue.observeInput('same text', [image('desktop-original')], 'interactive')
+    queue.prepareImageRun('same text', [image('desktop-original')])
+    expect(queue.consumeSubmittedRequest(content('same text', 'resized'))).toBeNull()
+    expect(queue.consumeSubmittedRequest(content('same text', 'resized'))?.userId).toBe('user_1')
+  })
+})
+
 describe('files accompany the correct input batch', () => {
   it('waits for a file download when its message also contains text', async () => {
     let completeDownload!: (buffer: Buffer) => void
