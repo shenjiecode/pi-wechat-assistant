@@ -6,7 +6,8 @@ const state = vi.hoisted(() => ({
   queue: null as any,
   lockConflict: false,
   lockState: { kind: 'missing' } as any,
-  requestHandoff: vi.fn(async () => {}),
+  requestHandoff: vi.fn(async (_owner: any, _signal?: AbortSignal, _progress?: (elapsedMs: number) => void) => {}),
+  debugLog: vi.fn(),
   handoffRequested: false,
   client: {
     userId: 'bound-user', accountId: 'bot', lastActiveUserId: null,
@@ -19,6 +20,10 @@ const state = vi.hoisted(() => ({
     getUpdates: vi.fn(), dispose: vi.fn(), startTyping: vi.fn(), stopTyping: vi.fn(),
   },
 }))
+vi.mock('../../src/shared/logger.js', async () => ({
+  ...await vi.importActual<typeof import('../../src/shared/logger.js')>('../../src/shared/logger.js'),
+  debugLog: state.debugLog,
+}))
 vi.mock('../../src/wechat/client.js', () => ({
   WeixinClient: { create: vi.fn(async () => state.client) },
   SessionExpiredError: class extends Error {},
@@ -28,9 +33,12 @@ vi.mock('../../src/bridge/config.js', () => ({
   saveConfig: vi.fn(async (config: BridgeConfig) => { state.config = config }),
   getConfigCache: vi.fn(() => state.config),
 }))
+vi.mock('../../src/bridge/state-storage.js', async () => ({
+  ...await vi.importActual<typeof import('../../src/bridge/state-storage.js')>('../../src/bridge/state-storage.js'),
+  getStateDir: () => process.cwd() + '/node_modules/.cache/wechat-bridge-test-state',
+}))
 vi.mock('../../src/bridge/auth.js', async () => ({
   ...await vi.importActual<typeof import('../../src/bridge/auth.js')>('../../src/bridge/auth.js'),
-  getStateDir: () => process.cwd() + '/node_modules/.cache/wechat-bridge-test-state',
   loadCredentials: vi.fn(async () => ({})),
   acquireLock: vi.fn(async (sessionId: string) => {
     if (state.lockConflict) return { success: false, message: '其他 pi 进程持有微信桥接锁（PID 424242）' }
@@ -50,6 +58,7 @@ vi.mock('../../src/bridge/queue.js', async () => {
 })
 import extension from '../../index.js'
 import { extractTextFromMessageContent } from '../../src/shared/utils.js'
+import { BridgeHandoffError } from '../../src/bridge/bridge-ownership.js'
 
 describe('bridge bidirectional sync and lifecycle', () => {
   let handlers: Record<string, (event: any, ctx: any) => any>
@@ -282,7 +291,7 @@ describe('bridge bidirectional sync and lifecycle', () => {
     expect(ctx.ui.select).toHaveBeenCalledWith(expect.stringContaining('PID 424242'), expect.anything())
     expect(state.requestHandoff).toHaveBeenCalledTimes(1)
     expect(activeTools).toEqual(['read', 'bash', 'send_file_to_wechat', 'send_image_to_wechat'])
-    expect(ctx.ui.notify).toHaveBeenCalledWith('微信桥接已启动 📱', 'info')
+    expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.stringMatching(/旧会话已释放桥接.*微信桥接已启动/), 'info')
   })
 
   it('reports headless auto-start lock conflicts without prompting', async () => {
@@ -864,6 +873,98 @@ describe('bridge bidirectional sync and lifecycle', () => {
     expect(activeTools).toEqual(['read', 'bash', 'send_file_to_wechat', 'send_image_to_wechat'])
   })
 
+  it('explains unsupported owners without logging session identifiers', async () => {
+    state.config.handoff = 'auto'
+    state.lockState = { kind: 'other', pid: 424242, sessionId: 'PRIVATE_SESSION' }
+    await command('start')
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining('未声明协作交接支持'), 'error')
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining('升级并重启持锁会话'), 'error')
+    expect(state.requestHandoff).not.toHaveBeenCalled()
+    const logs = state.debugLog.mock.calls.flat().join('\n')
+    expect(logs).toContain('event=HANDOFF_UNSUPPORTED')
+    expect(logs).toContain('ownerPid=424242 protocol=undeclared')
+    expect(logs).not.toContain('PRIVATE_SESSION')
+  })
+
+  it('keeps handoff release and elapsed time in the final startup notification', async () => {
+    state.config.handoff = 'auto'
+    state.lockState = { kind: 'other', pid: 424242, sessionId: 'old', protocol: 1 }
+    state.requestHandoff.mockImplementation(async (_owner, _signal, progress) => {
+      progress?.(0)
+      progress?.(5_000)
+      progress?.(10_000)
+      state.lockState = { kind: 'missing' }
+    })
+    await command('start')
+    const notifications = ctx.ui.notify.mock.calls.map(([text]: [string]) => text)
+    expect(notifications.filter((text: string) => text.includes('仍在等待旧会话'))).toEqual([
+      expect.stringContaining('已等待 5 秒'), expect.stringContaining('已等待 10 秒'),
+    ])
+    // Pi TUI displays only the latest notification: a separate startup notice
+    // must not immediately erase the useful release confirmation.
+    expect(notifications.at(-1)).toContain('旧会话已释放桥接（等待 ')
+    expect(notifications.at(-1)).toContain('微信桥接已启动 📱')
+    expect(state.debugLog.mock.calls.flat().join('\n')).toContain('event=waiting-release phase=handoff')
+    expect(state.debugLog.mock.calls.flat().join('\n')).toContain('waitMs=10000')
+  })
+
+  it('reports lock contention after inspection separately from unsupported handoff', async () => {
+    const { acquireLock } = await import('../../src/bridge/auth.js')
+    vi.mocked(acquireLock).mockResolvedValueOnce({ success: false, code: 'LOCK_CONFLICT', state: { kind: 'other', pid: 424242, sessionId: 'PRIVATE_NEW_OWNER', protocol: 1 }, message: 'other owner' })
+    await command('start')
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining('获取锁时归属已变化或被其他会话占用'), 'error')
+    expect(state.client.notifyStart).not.toHaveBeenCalled()
+    expect(state.debugLog.mock.calls.flat().join('\n')).toContain('event=LOCK_CONFLICT phase=acquire-lock')
+    expect(state.debugLog.mock.calls.flat().join('\n')).not.toContain('PRIVATE_NEW_OWNER')
+  })
+
+  it.each(['HANDOFF_TIMEOUT', 'HANDOFF_OWNER_CHANGED', 'HANDOFF_LOCK_UNKNOWN'] as const)('logs %s without serializing private error text', async code => {
+    state.config.handoff = 'auto'
+    state.lockState = { kind: 'other', pid: 424242, sessionId: 'PRIVATE_SESSION', protocol: 1 }
+    state.requestHandoff.mockRejectedValueOnce(new BridgeHandoffError(code, 'PRIVATE_ERROR https://private.test/path'))
+    await command('start')
+    const logs = state.debugLog.mock.calls.flat().join('\n')
+    expect(logs).toContain(`event=${code} phase=handoff`)
+    expect(logs).toContain(`code=${code}`)
+    expect(logs).not.toMatch(/PRIVATE_|private\.test/)
+    expect(state.client.notifyStart).not.toHaveBeenCalled()
+  })
+
+  it('cancels a pending handoff without leaving stale progress notifications', async () => {
+    state.config.handoff = 'auto'
+    state.lockState = { kind: 'other', pid: 424242, sessionId: 'old', protocol: 1 }
+    let progress!: (elapsedMs: number) => void
+    state.requestHandoff.mockImplementation(async (_owner, signal, onProgress) => {
+      progress = onProgress!
+      await new Promise((_resolve, reject) => signal!.addEventListener('abort', () => reject(signal!.reason), { once: true }))
+    })
+    const pending = command('start')
+    await vi.waitFor(() => expect(progress).toBeTypeOf('function'))
+    await command('stop')
+    progress(5_000)
+    await pending
+    expect(ctx.ui.notify).not.toHaveBeenCalledWith(expect.stringContaining('已等待 5 秒'), 'info')
+    expect(ctx.ui.notify).toHaveBeenCalledWith('微信桥接启动已取消。', 'info')
+    expect(state.debugLog.mock.calls.flat().join('\n')).toContain('event=CANCELLED phase=handoff')
+    expect(state.client.notifyStart).not.toHaveBeenCalled()
+  })
+
+  it('records stop phases while retaining ownership until outgoing sends settle', async () => {
+    await command('start')
+    let finish!: () => void
+    state.client.pauseSending.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    const pending = command('stop')
+    try {
+      await vi.waitFor(() => expect(state.debugLog).toHaveBeenCalledWith(expect.stringContaining('phase=send-drain')))
+      expect(state.lockState.kind).toBe('current')
+      expect(state.client.notifyStop).not.toHaveBeenCalled()
+    } finally { finish() }
+    await pending
+    const phases = state.debugLog.mock.calls.flat().filter((line: string) => line.startsWith('[bridge-stop]')).map((line: string) => line.match(/phase=([\w-]+)/)![1])
+    expect(phases).toEqual(['poll-drain', 'send-drain', 'state-flush', 'notify-stop', 'typing-stop', 'lock-release', 'complete'])
+    expect(state.lockState.kind).toBe('missing')
+  })
+
   it('never auto-takes-over legacy owners or headless hosts even with handoff auto', async () => {
     state.config.handoff = 'auto'
     state.lockConflict = true
@@ -887,6 +988,8 @@ describe('bridge bidirectional sync and lifecycle', () => {
     expect(ctx.ui.select).not.toHaveBeenCalled()
     expect(state.requestHandoff).not.toHaveBeenCalled()
     expect(printed.join('')).toContain('424242')
+    expect(printed.join('')).toContain('无界面或非交互模式')
+    expect(state.debugLog.mock.calls.flat().join('\n')).toContain('event=HANDOFF_NON_INTERACTIVE')
   })
 
   it('auto-starts with automatic handoff when handoff is auto', async () => {
@@ -1186,6 +1289,41 @@ describe('bridge bidirectional sync and lifecycle', () => {
     await handlers.message_start({ message: { role: 'user', content } }, ctx)
     expect(state.queue.activeRequest?.userId).toBe('bound-user')
     expect(state.client.sendText).not.toHaveBeenCalled()
+  })
+
+  it.each(['resized', 'reencoded', 'omitted'].flatMap(normalization => [true, false].map(source => ({ normalization, source }))))('routes an idle $normalization image with source=$source and drains the next message', async ({ normalization, source }) => {
+    state.config.messageSourceTag = { enabled: source }
+    await command('start')
+    state.queue.queue.push({
+      id: 'large-image', userId: 'bound-user', messageId: 'large-image', receivedAt: new Date(),
+      text: '解释图片', preview: '[图片]', contextToken: '',
+      imageData: { data: 'original-large-image', mediaType: 'image/png' },
+    })
+    await state.queue.drain()
+    const original = sendUserMessage.mock.calls[0][0]
+    const text = extractTextFromMessageContent(original)!
+    const images = original.filter((part: any) => part.type === 'image')
+    await handlers.input({ source: 'extension', text, images }, ctx)
+    await handlers.before_agent_start({ systemPrompt: 'base', messageType: 'user', prompt: text, images }, ctx)
+    await handlers.agent_start({}, ctx)
+    ctx.isIdle.mockReturnValue(false)
+    const normalized = [
+      { type: 'text', text: text + '\n\n[Image normalization hint from Pi]' },
+      ...(normalization === 'omitted' ? [] : [{ type: 'image', mimeType: normalization === 'reencoded' ? 'image/jpeg' : 'image/png', data: 'normalized-image' }]),
+    ]
+    const before = structuredClone(normalized)
+    await handlers.message_start({ message: { role: 'user', content: normalized } }, ctx)
+    expect(state.queue.activeRequest?.messageId).toBe('large-image')
+    expect(state.queue.pendingInjection).toBeNull()
+    expect(normalized).toEqual(before) // No internal markers or mutation of host-normalized history.
+    state.client.sendText.mockClear()
+    await reply('图片回复')
+    expect(state.client.sendText).toHaveBeenCalledWith('bound-user', '图片回复')
+    await handlers.agent_end({ messages: [] }, ctx)
+    ctx.isIdle.mockReturnValue(true)
+    await wechatInput('下一条消息', true)
+    await reply('后续回复')
+    expect(state.client.sendText).toHaveBeenCalledWith('bound-user', '后续回复')
   })
 
   it('can disable TUI sync without changing the message source selection', async () => {

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const cache = path.join(root, 'node_modules', '.cache', 'pi-wechat-compat', 'packages')
-const versions = ['0.73.1', '0.78.0', '0.84.0', '0.84.4', '0.99.2', '1.1.0', '1.2.0']
+const versions = ['0.73.1', '0.78.0', '0.84.0', '0.84.4', '0.99.2', '1.1.0', '1.2.0', '1.4.0']
 const selected = process.argv.slice(2)
 if (selected.some(version => !versions.includes(version))) throw new Error('Unsupported compatibility version')
 

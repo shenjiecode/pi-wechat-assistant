@@ -27,6 +27,8 @@ One bridge may own the shared local account state at a time. In the old session,
 
 `/wechat config handoff auto` skips the confirmation for cooperative handoff in the interactive UI. Headless sessions do not automatically take over. Handoff transfers the bridge, not the old conversation history, and does not cancel the old AI task. Do not manually delete a live session's lock to bypass ownership.
 
+This setting applies to manual `/wechat start` as well as auto-start; saving it does not switch the bridge immediately. Enabling `/wechat config auto-start on` offers the recommended automatic handoff choice if it is not already enabled. You can also use `/wechat config` → handoff mode → Auto. See the [two-session tutorial](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/tutorial.md) for verification steps and the 30-second timeout behavior. `/wechat start!` is not supported.
+
 ## Desktop conversations are not mirrored
 
 This is the default since 0.6.0. WeChat tasks still receive their own replies. Enable new desktop input/reply mirroring with `/wechat config bidirectional on` in pi. Existing explicit settings are preserved, and historical messages are not replayed.

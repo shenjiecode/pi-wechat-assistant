@@ -11,6 +11,8 @@ Describe the problem and resulting behavior. Target `develop` for normal changes
 
 Describe manual checks and any checks not run.
 
+For runtime changes, identify the regression scenario covered by tests and any real-WeChat checks performed. For documentation, keep the English and Chinese files in sync. See the [acceptance checklist](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.md).
+
 ### Related issues and compatibility
 
 Link related issues and describe user-facing or compatibility changes.
@@ -29,6 +31,8 @@ Link related issues and describe user-facing or compatibility changes.
 - [ ] `npm run typecheck:pi`
 
 说明手动检查及未执行的检查。
+
+运行行为变化请说明测试覆盖的回归场景，以及实际执行过的真实微信检查。文档请同步中英文文件。参见[验收清单](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.zh.md)。
 
 ### 关联 issue 与兼容性
 

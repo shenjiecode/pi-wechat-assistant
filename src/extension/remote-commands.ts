@@ -3,7 +3,7 @@
 // ============================================================================
 
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from '@mariozechner/pi-coding-agent'
-import { debugLog } from '../shared/logger.js'
+import { debugLog, debugError } from '../shared/logger.js'
 import { formatError } from '../shared/utils.js'
 import { getImageMaxBytes, getImageBatchWaitMs } from '../bridge/queue.js'
 import { WeixinClient } from '../wechat/client.js'
@@ -279,7 +279,7 @@ export async function handleRemoteCommand(
     const reply = await handler(args, userId, client, deps)
     if (reply !== null) await client.sendText(userId, reply)
   } catch (err) {
-    debugLog(`远程命令 /${cmd} 执行失败: ${formatError(err)}`)
+    debugLog(`远程命令 /${cmd} 执行失败: ${debugError(err)}`)
     await client.sendText(userId, `❌ 命令执行失败: ${formatError(err)}`).catch(() => {})
   }
   return true

@@ -4,14 +4,13 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import type { ExtensionContext, ExtensionCommandContext } from '@mariozechner/pi-coding-agent'
-import { debugLog } from '../shared/logger.js'
+import { debugLog, debugError, redactUrl } from '../shared/logger.js'
 import { WeixinClient } from '../wechat/client.js'
 import { fetchImageAsBase64, fetchFile, saveFileToDisk, type ImageData } from '../wechat/media.js'
 import {
   MAX_IMAGE_PREFETCH_CONCURRENCY,
 } from '../shared/constants.js'
 import { summarizePreview, formatError, extractTextFromMessageContent } from '../shared/utils.js'
-import { redactUrl } from '../shared/logger.js'
 import type { IncomingMessage } from '../wechat/types.js'
 import { getConfigCache } from './config.js'
 import { resolveImageBatchWaitMs, resolveImageMaxBytes, receiptText } from './config-values.js'
@@ -38,6 +37,8 @@ export interface QueuedMessage {
 }
 
 export type Ctx = ExtensionContext | ExtensionCommandContext
+
+type ObservedInput = { key: string; request: QueuedMessage | null }
 
 function contentKey(content: unknown): string {
   const text = extractTextFromMessageContent(content) ?? ''
@@ -81,7 +82,8 @@ export class MessageQueue {
   pendingInjection: QueuedMessage | null = null
   activeRequest: QueuedMessage | null = null
   private submittedRequests: Array<{ request: QueuedMessage; key: string; inputObserved: boolean }> = []
-  private inputSources: Array<{ key: string; request: QueuedMessage | null }> = []
+  private inputSources: ObservedInput[] = []
+  private preparedImageInput: ObservedInput | undefined
 
   private batchTimer: ReturnType<typeof setTimeout> | null = null
   private imageBatchAckSent = false
@@ -120,7 +122,7 @@ export class MessageQueue {
     const hasImages = imageCount > 0
     const hasText = !!message.text
     const hasFile = !!message.fileEncryptParam
-    log(`[ENQUEUE] type=${message.type} text=${message.text?.slice(0, 40)} images=${imageCount} hasFile=${hasFile} queueBefore=${this.queue.length} agentIdle=${this.getAgentIdle()} batchTimer=${!!this.batchTimer}`)
+    log(`[ENQUEUE] type=${message.type} textLen=${message.text?.length ?? 0} images=${imageCount} hasFile=${hasFile} queueBefore=${this.queue.length} agentIdle=${this.getAgentIdle()} batchTimer=${!!this.batchTimer}`)
 
     const client = this.getClient()
 
@@ -134,7 +136,7 @@ export class MessageQueue {
     // 文件：立即下载保存 + 自动回复，不入队，不参与计时器
     if (hasFile) {
       const download = this._handleFile(message, this.generation).catch(error => {
-        log(`[FILE-ERROR] ${formatError(error)}`)
+        log(`[FILE-ERROR] ${debugError(error)}`)
       })
       this.fileDownloads.add(download)
       void download.finally(() => this.fileDownloads.delete(download))
@@ -185,7 +187,7 @@ export class MessageQueue {
     if (hasImages) {
       if (!this.imageBatchAckSent && client && getConfigCache().sendAck !== false) {
         this.imageBatchAckSent = true
-        void client.sendText(message.userId, receiptText(getConfigCache(), true)).catch(err => log(`[IMAGE-ACK-FAIL] ${formatError(err)}`))
+        void client.sendText(message.userId, receiptText(getConfigCache(), true)).catch(err => log(`[IMAGE-ACK-FAIL] ${debugError(err)}`))
       }
       this.restartBatchTimer('图片')
       return
@@ -204,7 +206,7 @@ export class MessageQueue {
     const buffer = await fetchFile(message.fileEncryptParam!, message.fileAesKey, this.getPollSignal())
     if (generation !== this.generation || !this.isRunning()) return
     if (!buffer) {
-      log(`[FILE-DL-FAIL] ${fileName}`)
+      log('[FILE-DL-FAIL] download failed')
       if (client) void client.sendText(message.userId, `⚠️ 文件下载失败: ${fileName}`).catch(() => {})
       return
     }
@@ -217,12 +219,12 @@ export class MessageQueue {
     const savedPath = await saveFileToDisk(buffer, fileName, wechatFilesDir)
     if (generation !== this.generation || !this.isRunning()) return
     if (!savedPath) {
-      log(`[FILE-SAVE-FAIL] 保存失败: ${fileName}`)
+      log('[FILE-SAVE-FAIL] 保存失败')
       return
     }
 
     this.accumulatedFiles.push({ name: fileName, size: buffer.length, path: savedPath })
-    log(`[FILE-SAVED] ${fileName} (${(buffer.length / 1024).toFixed(1)} KB) → ${savedPath}`)
+    log(`[FILE-SAVED] bytes=${buffer.length}`)
 
     if (client) {
       const kb = (buffer.length / 1024).toFixed(1)
@@ -269,7 +271,7 @@ export class MessageQueue {
       await this._doDrain()
     } catch (error) {
       if (generation !== this.generation) return
-      log(`[DRAIN-ERROR] ${formatError(error)}`)
+      log(`[DRAIN-ERROR] ${debugError(error)}`)
       const request = this.pendingInjection
       this.pendingInjection = null
       if (request) {
@@ -389,7 +391,7 @@ export class MessageQueue {
       log(`[DRAIN-SEND] image+text, images=${images.length}, mode=followUp`)
       this.submit(content, first)
     } else if (hasText) {
-      log(`[DRAIN-SEND] text, text=${texts.join(' ').slice(0, 80)}, mode=followUp`)
+      log(`[DRAIN-SEND] text, textLen=${texts.join(' ').length}, mode=followUp`)
       this.submit(texts.join('\n'), first)
     } else {
       if (hadImageMessages) {
@@ -407,7 +409,7 @@ export class MessageQueue {
       try {
         await client.sendText(first.userId, receiptText(getConfigCache()))
       } catch (err) {
-        log(`发送回执失败: ${formatError(err)}`)
+        log(`发送回执失败: ${debugError(err)}`)
       }
     }
   }
@@ -449,6 +451,22 @@ export class MessageQueue {
     return submitted?.request
   }
 
+  /** Bind the starting image input BEFORE Pi normalizes its bytes and adds hints.
+   * The host emits that run's starting user message before queued follow-ups.
+   * Only an exact, already observed input can bind; neither a tag nor text alone
+   * establishes origin. A non-bridge input is retained as a negative match.
+   */
+  prepareImageRun(text?: string, images?: unknown[]): void {
+    this.clearPreparedRun()
+    if (typeof text !== 'string' || !images?.length) return
+    const key = contentKey([{ type: 'text', text }, ...images])
+    this.preparedImageInput = this.inputSources.find(item => item.key === key)
+  }
+
+  clearPreparedRun(): void {
+    this.preparedImageInput = undefined
+  }
+
   /** Also identifies stale asynchronous input checks after a bridge reset. */
   hasSubmittedRequest(request: QueuedMessage): boolean {
     return this.submittedRequests.some(item => item.request === request)
@@ -456,6 +474,7 @@ export class MessageQueue {
 
   /** Drop a bridge input rejected before Pi starts a run (no lifecycle events follow). */
   discardSubmittedRequest(request: QueuedMessage): void {
+    if (this.preparedImageInput?.request === request) this.clearPreparedRun()
     this.submittedRequests = this.submittedRequests.filter(item => item.request !== request)
     this.inputSources = this.inputSources.filter(item => item.request !== request)
     if (this.pendingInjection === request) this.pendingInjection = null
@@ -464,7 +483,12 @@ export class MessageQueue {
   /** Match only this bridge's submissions, when Pi actually consumes the message. */
   consumeSubmittedRequest(content: unknown): QueuedMessage | null {
     const key = contentKey(content)
-    const inputIndex = this.inputSources.findIndex(item => item.key === key)
+    // The one-shot run binding survives resize/re-encoding/omission. Busy
+    // follow-ups and hosts without preparation metadata keep exact matching.
+    const inputIndex = this.preparedImageInput
+      ? this.inputSources.indexOf(this.preparedImageInput)
+      : this.inputSources.findIndex(item => item.key === key)
+    this.clearPreparedRun()
     const input = inputIndex >= 0 ? this.inputSources.splice(inputIndex, 1)[0] : undefined
     if (input && !input.request) return null
     const index = this.submittedRequests.findIndex(item => input
@@ -483,6 +507,7 @@ export class MessageQueue {
     this.activeRequest = null
     this.submittedRequests.length = 0
     this.inputSources.length = 0
+    this.clearPreparedRun()
     this.generation++
     this.fileDownloads.clear()
     this.imageBatchAckSent = false
