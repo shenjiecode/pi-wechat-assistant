@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### English
 
-- Explain why bridge startup or cooperative handoff is refused, distinguish ownership changes and timeouts, show waiting progress every five seconds, and report when the previous session has released the bridge. Keep cancellation and drain-before-release safeguards; a timeout does not leave a background retry running.
+- Explain why bridge startup or cooperative handoff is refused, distinguish ownership changes and timeouts, show waiting progress every five seconds, and retain the previous session's release and elapsed time in the final startup notification so Pi TUI does not immediately overwrite them. Keep cancellation and drain-before-release safeguards; a timeout does not leave a background retry running.
 - Add sanitized startup, handoff, and shutdown diagnostics. Remove message previews, account identifiers, raw attachment fields, private paths, and full error text from debug call sites; preserve safe nested network error codes. Rotate debug logs at approximately 1 MiB with one backup. Existing logs are not retroactively sanitized.
 - Add architecture-boundary and runtime-cycle checks, a complete CI aggregate, weekly dependency-update configuration, and Pi 1.4.0 API compatibility coverage alongside seven older versions.
 - Refresh development tooling and override the development Pi host's vulnerable `undici` dependency to `8.12.3`. Production dependencies are unchanged; this override does not patch a user's separately installed Pi host.
@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 中文
 
-- 明确桥接启动与协作交接被拒绝的原因，区分持锁方变化和超时，每 5 秒显示等待进度，并提示旧会话已释放桥接；保留取消及收发排空后释放锁的保护，超时不会留下后台重试。
+- 明确桥接启动与协作交接被拒绝的原因，区分持锁方变化和超时，每 5 秒显示等待进度；在最终启动提示中保留旧会话已释放及等待耗时，避免被 Pi TUI 立即覆盖。保留取消及收发排空后释放锁的保护，超时不会留下后台重试。
 - 增加脱敏的启动、交接和停止诊断；调试调用点不再记录消息预览、账号标识、原始附件字段、私人路径或完整错误文本，保留安全的嵌套网络错误码。日志约 1 MiB 时轮转并保留一个备份，旧日志不会自动清洗。
 - 增加架构边界与运行时循环检查、完整 CI 汇总、每周依赖更新配置；在原有七个版本之外增加 Pi 1.4.0 API 兼容检查。
 - 更新开发工具，将开发用 Pi 宿主中存在已知漏洞的 `undici` 覆盖到 `8.12.3`；生产依赖不变，这项覆盖不会修补用户单独安装的 Pi 宿主。
