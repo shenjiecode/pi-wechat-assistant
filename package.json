@@ -1,6 +1,6 @@
 {
   "name": "pi-wechat-assistant",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "type": "module",
   "description": "在微信里继续 pi 对话：双向同步、图片与文件、会话交接。 Continue pi conversations from WeChat.",
   "main": "index.ts",
