@@ -85,5 +85,10 @@
   },
   "dependencies": {
     "qrcode-terminal": "^0.12.0"
+  },
+  "overrides": {
+    "@earendil-works/pi-coding-agent": {
+      "undici": "8.12.3"
+    }
   }
 }

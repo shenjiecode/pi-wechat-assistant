@@ -54,6 +54,8 @@ Dependabot is configured to propose weekly npm and GitHub Actions updates to `de
 
 When an audit fails, inspect the affected dependency path, advisory and fixed versions. Update the lockfile, rerun checks, and record what remains. Do not use `npm audit fix --force` merely to make a number disappear. Do not install unsupported development tooling to silence an alert while still claiming the older CI Node matrix works.
 
+The checkout temporarily overrides the development Pi host's `undici` dependency to `8.12.3`: Pi `1.4.0` pins `8.10.2`, which is affected by advisories covering versions before `8.12.2`. This scoped root-package override repairs the development dependency tree without downgrading Pi or adding a runtime dependency. It does not patch the user's separately installed Pi host, and npm ignores this package's overrides when installing it as a dependency. Reassess and remove the override when an upstream Pi release uses a fixed version; rerun clean installation, both audits, and compatibility checks.
+
 Keep the runtime Node floor separate from development tools and the user's Pi host. New Vitest or Pi releases may raise their own Node requirements. Compatibility samples live in `scripts/check-pi-compat.mjs`; add a representative new host when its API changes.
 
 ## Debugging without collecting conversations
