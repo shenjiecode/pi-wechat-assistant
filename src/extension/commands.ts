@@ -143,6 +143,7 @@ export async function startBridge(_args: string, ctx: Ctx, deps: CommandDeps, in
   let owner: BridgeLockState = { kind: 'missing' }
   const trace = (event: string, detail = '') => debugLog(`[bridge-start] callerPid=${process.pid} source=${source} interactive=${ctx.hasUI && interactive} event=${event} phase=${phase} elapsedMs=${Math.max(0, Date.now() - startedAt)} ${bridgeLockMetadata(owner)}${detail ? ' ' + detail : ''}`)
   let acquired = false
+  let handoffReleaseNotice = ''
   try {
     trace('begin')
     const activeClient = await deps.loadClient()
@@ -190,7 +191,8 @@ export async function startBridge(_args: string, ctx: Ctx, deps: CommandDeps, in
       })
       check()
       trace('released')
-      deps.notify(`旧会话已释放桥接（等待 ${((Date.now() - handoffStartedAt) / 1000).toFixed(1)} 秒），正在启动当前会话…`, 'info')
+      handoffReleaseNotice = `旧会话已释放桥接（等待 ${((Date.now() - handoffStartedAt) / 1000).toFixed(1)} 秒）`
+      deps.notify(`${handoffReleaseNotice}，正在启动当前会话…`, 'info')
     }
     phase = 'acquire-lock'
     const result = await deps.lock()
@@ -216,7 +218,8 @@ export async function startBridge(_args: string, ctx: Ctx, deps: CommandDeps, in
     deps.setRunning(true)
     deps.setPollAbort(new AbortController())
     reason = 'STARTED'
-    deps.notify('微信桥接已启动 📱', 'info')
+    // TUI notifications replace one another; retain release evidence on success.
+    deps.notify(`${handoffReleaseNotice ? handoffReleaseNotice + '；' : ''}微信桥接已启动 📱`, 'info')
     deps.updateStatusBar()
     void deps.pollMessages(activeClient).catch(error => deps.notify(`微信轮询异常退出: ${formatError(error)}`, 'error'))
   } catch (error) {

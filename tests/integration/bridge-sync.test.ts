@@ -291,7 +291,7 @@ describe('bridge bidirectional sync and lifecycle', () => {
     expect(ctx.ui.select).toHaveBeenCalledWith(expect.stringContaining('PID 424242'), expect.anything())
     expect(state.requestHandoff).toHaveBeenCalledTimes(1)
     expect(activeTools).toEqual(['read', 'bash', 'send_file_to_wechat', 'send_image_to_wechat'])
-    expect(ctx.ui.notify).toHaveBeenCalledWith('微信桥接已启动 📱', 'info')
+    expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.stringMatching(/旧会话已释放桥接.*微信桥接已启动/), 'info')
   })
 
   it('reports headless auto-start lock conflicts without prompting', async () => {
@@ -886,7 +886,7 @@ describe('bridge bidirectional sync and lifecycle', () => {
     expect(logs).not.toContain('PRIVATE_SESSION')
   })
 
-  it('shows elapsed handoff progress and release before starting', async () => {
+  it('keeps handoff release and elapsed time in the final startup notification', async () => {
     state.config.handoff = 'auto'
     state.lockState = { kind: 'other', pid: 424242, sessionId: 'old', protocol: 1 }
     state.requestHandoff.mockImplementation(async (_owner, _signal, progress) => {
@@ -900,7 +900,10 @@ describe('bridge bidirectional sync and lifecycle', () => {
     expect(notifications.filter((text: string) => text.includes('仍在等待旧会话'))).toEqual([
       expect.stringContaining('已等待 5 秒'), expect.stringContaining('已等待 10 秒'),
     ])
-    expect(notifications.findIndex((text: string) => text.includes('旧会话已释放桥接'))).toBeLessThan(notifications.indexOf('微信桥接已启动 📱'))
+    // Pi TUI displays only the latest notification: a separate startup notice
+    // must not immediately erase the useful release confirmation.
+    expect(notifications.at(-1)).toContain('旧会话已释放桥接（等待 ')
+    expect(notifications.at(-1)).toContain('微信桥接已启动 📱')
     expect(state.debugLog.mock.calls.flat().join('\n')).toContain('event=waiting-release phase=handoff')
     expect(state.debugLog.mock.calls.flat().join('\n')).toContain('waitMs=10000')
   })
