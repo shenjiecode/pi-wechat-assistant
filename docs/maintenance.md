@@ -50,7 +50,7 @@ For handoff timeout, cancellation, changed ownership and unauthorized senders, k
 
 ## Dependencies and CI maintenance
 
-Dependabot is configured to propose weekly npm and GitHub Actions updates to `develop`, with small PR limits and grouped development patch/minor updates. Review behavior and CI before merging; there is no automatic merge. The configuration must reach the default branch before GitHub starts using it. Security updates are a separate repository setting, and target-branch version-update entries do not enable them.
+Dependabot groups npm and GitHub Actions version updates into one weekly cross-ecosystem PR targeting `develop`, with at most one open grouped PR. Major-version upgrades are ignored for both ecosystems and require an explicit maintenance decision; minor and patch updates remain eligible. Review behavior and CI before merging; there is no automatic merge. The configuration must reach the default branch before GitHub starts using it. Security alerts/updates are separate repository settings: this version-update grouping does not enable or disable them, and security PRs may be additional to the single version-update PR.
 
 When an audit fails, inspect the affected dependency path, advisory and fixed versions. Update the lockfile, rerun checks, and record what remains. Do not use `npm audit fix --force` merely to make a number disappear. Do not install unsupported development tooling to silence an alert while still claiming the older CI Node matrix works.
 

@@ -1,25 +1,28 @@
 version: 2
+
+# One weekly version-update PR across npm and GitHub Actions.
+# Major upgrades require an explicit maintenance decision.
+multi-ecosystem-groups:
+  dependencies:
+    schedule:
+      interval: weekly
+    target-branch: develop
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: chore
+
 updates:
   - package-ecosystem: npm
     directory: /
-    target-branch: develop
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 3
-    groups:
-      development-patches:
-        dependency-type: development
-        update-types: [minor, patch]
-    commit-message:
-      prefix: chore
+    patterns: ['*']
+    multi-ecosystem-group: dependencies
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
   - package-ecosystem: github-actions
     directory: /
-    target-branch: develop
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 2
-    groups:
-      actions:
-        patterns: ['*']
-    commit-message:
-      prefix: ci
+    patterns: ['*']
+    multi-ecosystem-group: dependencies
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
