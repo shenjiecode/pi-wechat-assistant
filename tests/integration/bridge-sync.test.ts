@@ -1291,6 +1291,41 @@ describe('bridge bidirectional sync and lifecycle', () => {
     expect(state.client.sendText).not.toHaveBeenCalled()
   })
 
+  it.each(['resized', 'reencoded', 'omitted'].flatMap(normalization => [true, false].map(source => ({ normalization, source }))))('routes an idle $normalization image with source=$source and drains the next message', async ({ normalization, source }) => {
+    state.config.messageSourceTag = { enabled: source }
+    await command('start')
+    state.queue.queue.push({
+      id: 'large-image', userId: 'bound-user', messageId: 'large-image', receivedAt: new Date(),
+      text: '解释图片', preview: '[图片]', contextToken: '',
+      imageData: { data: 'original-large-image', mediaType: 'image/png' },
+    })
+    await state.queue.drain()
+    const original = sendUserMessage.mock.calls[0][0]
+    const text = extractTextFromMessageContent(original)!
+    const images = original.filter((part: any) => part.type === 'image')
+    await handlers.input({ source: 'extension', text, images }, ctx)
+    await handlers.before_agent_start({ systemPrompt: 'base', messageType: 'user', prompt: text, images }, ctx)
+    await handlers.agent_start({}, ctx)
+    ctx.isIdle.mockReturnValue(false)
+    const normalized = [
+      { type: 'text', text: text + '\n\n[Image normalization hint from Pi]' },
+      ...(normalization === 'omitted' ? [] : [{ type: 'image', mimeType: normalization === 'reencoded' ? 'image/jpeg' : 'image/png', data: 'normalized-image' }]),
+    ]
+    const before = structuredClone(normalized)
+    await handlers.message_start({ message: { role: 'user', content: normalized } }, ctx)
+    expect(state.queue.activeRequest?.messageId).toBe('large-image')
+    expect(state.queue.pendingInjection).toBeNull()
+    expect(normalized).toEqual(before) // No internal markers or mutation of host-normalized history.
+    state.client.sendText.mockClear()
+    await reply('图片回复')
+    expect(state.client.sendText).toHaveBeenCalledWith('bound-user', '图片回复')
+    await handlers.agent_end({ messages: [] }, ctx)
+    ctx.isIdle.mockReturnValue(true)
+    await wechatInput('下一条消息', true)
+    await reply('后续回复')
+    expect(state.client.sendText).toHaveBeenCalledWith('bound-user', '后续回复')
+  })
+
   it('can disable TUI sync without changing the message source selection', async () => {
     state.config.bidirectionalSync = false
     await command('start')

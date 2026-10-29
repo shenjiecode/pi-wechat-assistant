@@ -38,6 +38,8 @@ export interface QueuedMessage {
 
 export type Ctx = ExtensionContext | ExtensionCommandContext
 
+type ObservedInput = { key: string; request: QueuedMessage | null }
+
 function contentKey(content: unknown): string {
   const text = extractTextFromMessageContent(content) ?? ''
   const images = Array.isArray(content)
@@ -80,7 +82,8 @@ export class MessageQueue {
   pendingInjection: QueuedMessage | null = null
   activeRequest: QueuedMessage | null = null
   private submittedRequests: Array<{ request: QueuedMessage; key: string; inputObserved: boolean }> = []
-  private inputSources: Array<{ key: string; request: QueuedMessage | null }> = []
+  private inputSources: ObservedInput[] = []
+  private preparedImageInput: ObservedInput | undefined
 
   private batchTimer: ReturnType<typeof setTimeout> | null = null
   private imageBatchAckSent = false
@@ -448,6 +451,22 @@ export class MessageQueue {
     return submitted?.request
   }
 
+  /** Bind the starting image input BEFORE Pi normalizes its bytes and adds hints.
+   * The host emits that run's starting user message before queued follow-ups.
+   * Only an exact, already observed input can bind; neither a tag nor text alone
+   * establishes origin. A non-bridge input is retained as a negative match.
+   */
+  prepareImageRun(text?: string, images?: unknown[]): void {
+    this.clearPreparedRun()
+    if (typeof text !== 'string' || !images?.length) return
+    const key = contentKey([{ type: 'text', text }, ...images])
+    this.preparedImageInput = this.inputSources.find(item => item.key === key)
+  }
+
+  clearPreparedRun(): void {
+    this.preparedImageInput = undefined
+  }
+
   /** Also identifies stale asynchronous input checks after a bridge reset. */
   hasSubmittedRequest(request: QueuedMessage): boolean {
     return this.submittedRequests.some(item => item.request === request)
@@ -455,6 +474,7 @@ export class MessageQueue {
 
   /** Drop a bridge input rejected before Pi starts a run (no lifecycle events follow). */
   discardSubmittedRequest(request: QueuedMessage): void {
+    if (this.preparedImageInput?.request === request) this.clearPreparedRun()
     this.submittedRequests = this.submittedRequests.filter(item => item.request !== request)
     this.inputSources = this.inputSources.filter(item => item.request !== request)
     if (this.pendingInjection === request) this.pendingInjection = null
@@ -463,7 +483,12 @@ export class MessageQueue {
   /** Match only this bridge's submissions, when Pi actually consumes the message. */
   consumeSubmittedRequest(content: unknown): QueuedMessage | null {
     const key = contentKey(content)
-    const inputIndex = this.inputSources.findIndex(item => item.key === key)
+    // The one-shot run binding survives resize/re-encoding/omission. Busy
+    // follow-ups and hosts without preparation metadata keep exact matching.
+    const inputIndex = this.preparedImageInput
+      ? this.inputSources.indexOf(this.preparedImageInput)
+      : this.inputSources.findIndex(item => item.key === key)
+    this.clearPreparedRun()
     const input = inputIndex >= 0 ? this.inputSources.splice(inputIndex, 1)[0] : undefined
     if (input && !input.request) return null
     const index = this.submittedRequests.findIndex(item => input
@@ -482,6 +507,7 @@ export class MessageQueue {
     this.activeRequest = null
     this.submittedRequests.length = 0
     this.inputSources.length = 0
+    this.clearPreparedRun()
     this.generation++
     this.fileDownloads.clear()
     this.imageBatchAckSent = false
