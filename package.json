@@ -78,7 +78,7 @@
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^1.4.0",
     "@sinclair/typebox": "^0.34.49",
-    "@types/node": "^22.10.5",
+    "@types/node": "^26.6.5",
     "@types/qrcode-terminal": "^0.12.2",
     "typescript": "^5.9.3",
     "vitest": "^4.1.12"
