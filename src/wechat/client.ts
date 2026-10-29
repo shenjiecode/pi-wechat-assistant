@@ -309,14 +309,14 @@ export class WeixinClient {
       // 授权必须发生在缓存 context token、解析内容和消息入队之前。
       if (raw.message_type !== 1) continue
       if (!isAuthorizedWeChatSender(raw.from_user_id, this.userId)) {
-        debugLog(`[AUTH] drop message from unbound user ${raw.from_user_id || '(empty)'}`)
+        debugLog('[AUTH] drop message from unbound user')
         continue
       }
       const normalized = this.normalizeIncomingMessage(raw)
       if (!normalized) continue
       const id = normalized.messageId
       if (id && this._seenMessageIds.has(id)) {
-        debugLog(`[DEDUP] skip already-seen message ${id}`)
+        debugLog('[DEDUP] skip already-seen message')
         continue
       }
       if (id) {
@@ -429,7 +429,7 @@ export class WeixinClient {
     item_list?: MessageItem[]
   }): IncomingMessage | null {
     if (raw.message_type !== 1) return null
-    debugLog(`normalizeIncomingMessage: item_list=${JSON.stringify(raw.item_list)?.slice(0, 500)}`)
+    debugLog(`normalizeIncomingMessage: items=${raw.item_list?.length ?? 0}`)
     const items = raw.item_list ?? []
     const { text, imageUrls, fileEncryptParam, fileAesKey, fileName, hasVideo, hasVoice } = extractContent(items)
 
@@ -499,7 +499,7 @@ function extractContent(items: MessageItem[]): {
         break
       }
       case 2: { // 图片
-        debugLog(`extractContent: image_item=${JSON.stringify(item.image_item)}`)
+        debugLog(`extractContent: image hasUrl=${!!item.image_item?.media?.full_url} encrypted=${!!item.image_item?.aeskey}`)
         const url = item.image_item?.media?.full_url
         const aesKey = item.image_item?.aeskey
         if (url) imageUrls.push({ url, aesKey })

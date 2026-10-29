@@ -6,7 +6,7 @@
 
 ## 开发环境
 
-开发时使用 Node.js 22 和 npm。CI 在 Linux 和 Windows 上使用 Node.js 20.19.0、22、24 执行完整检查；单独的 Node.js 20.3.0 冒烟检查验证编译后的扩展注册和模拟客户端下的文字队列提交，不运行 Pi 宿主，也不验证真实微信收发。所选 Pi 宿主可能要求更高的 Node.js 版本。
+开发时使用 Node.js 22.19+（或 24）和 npm，以满足当前开发用 Pi 包的要求。CI 在 Linux 和 Windows 上使用 Node.js 20.19.0、22、24 执行完整检查；单独的 Node.js 20.3.0 冒烟检查验证编译后的扩展注册和模拟客户端下的文字队列提交，不运行 Pi 宿主，也不验证真实微信收发。所选 Pi 宿主可能要求更高的 Node.js 版本。
 
 ```bash
 git clone https://github.com/shenjiecode/pi-wechat-assistant.git
@@ -57,7 +57,8 @@ git push origin develop
 | `npm run typecheck` | 检查运行时 TypeScript 源码 |
 | `npm test` | 运行全部测试 |
 | `npm run test:watch` | 开发时持续运行测试 |
-| `npm run typecheck:pi` | 检查七个版本的 Pi API 类型兼容性 |
+| `npm run typecheck:pi` | 检查八个版本的 Pi API 类型兼容性 |
+| `npm run check:architecture` | 检查领域依赖边界、运行时循环与 Pi 类型导入 |
 | `npm run check:docs` | 检查文档导航与语言切换链接 |
 | `npm run check:package` | 检查发布文件列表，不生成压缩包 |
 
@@ -86,6 +87,8 @@ git push origin develop
 `main` 要求通过 PR 合并，并通过 `check (ubuntu-latest, 22)` 和 `check (windows-latest, 22)` 两项 CI；PR 必须与 `main` 保持最新。必需的 Approval 数设为 **0**：GitHub 不允许作者批准自己的 PR，因此由唯一维护者检查差异和检查结果后手动合并。保护规则同样适用于管理员，禁止强推和删除分支。不要代替维护者开启自动合并。
 
 敏感问题请参阅[安全说明](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/SECURITY.zh.md)。
+
+CI 现在还提供 `CI success` 汇总检查，覆盖全部矩阵、最低运行版本和生产依赖审计。上述分支保护是已有配置；新增工作流不会自动把汇总检查设为必需项，维护者应在它成功运行后再调整。完整检查边界和真实微信验收清单见[维护指南](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.zh.md)。
 
 ## 发布
 

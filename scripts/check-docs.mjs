@@ -7,7 +7,8 @@ import { readdir, readFile } from 'node:fs/promises'
 const root = new URL('../', import.meta.url)
 const prefix = 'https://github.com/shenjiecode/pi-wechat-assistant/blob/main/'
 const docs = (await readdir(new URL('docs/', root))).filter(file => file.endsWith('.md'))
-const pages = ['README.md', 'README.zh.md', ...docs.map(file => `docs/${file}`)]
+const community = (await readdir(new URL('.github/', root))).filter(file => /^(?:CONTRIBUTING|SECURITY|SUPPORT)(?:\.zh)?\.md$/.test(file))
+const pages = ['README.md', 'README.zh.md', ...docs.map(file => `docs/${file}`), ...community.map(file => `.github/${file}`)]
 let checked = 0
 
 for (const page of pages) {

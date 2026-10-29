@@ -26,7 +26,7 @@
     "agent"
   ],
   "scripts": {
-    "check": "npm run typecheck && npm test && npm run check:docs && npm run check:package",
+    "check": "npm run typecheck && npm run check:architecture && npm test && npm run check:docs && npm run check:package",
     "check:docs": "node scripts/check-docs.mjs",
     "check:package": "node scripts/check-package.mjs",
     "typecheck": "tsc --noEmit",
@@ -34,7 +34,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "preversion": "npm run check && npm run typecheck:pi",
-    "prepack": "npm run typecheck"
+    "prepack": "npm run typecheck",
+    "check:architecture": "node scripts/check-architecture.mjs",
+    "audit:production": "npm audit --omit=dev --audit-level=high"
   },
   "engines": {
     "node": ">=20.3.0"
@@ -74,15 +76,19 @@
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@mariozechner/pi-coding-agent": "*",
+    "@earendil-works/pi-coding-agent": "^1.4.0",
     "@sinclair/typebox": "^0.34.49",
     "@types/node": "^22.10.5",
     "@types/qrcode-terminal": "^0.12.2",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.12"
   },
   "dependencies": {
     "qrcode-terminal": "^0.12.0"
+  },
+  "overrides": {
+    "@earendil-works/pi-coding-agent": {
+      "undici": "8.12.3"
+    }
   }
 }

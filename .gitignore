@@ -10,3 +10,4 @@ page-*.yml
 .env.*
 !.env.example
 *.log
+*.log.1
