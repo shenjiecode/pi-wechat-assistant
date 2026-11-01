@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.6.5] - 2026-11-01
+
+### English
+
+- Add Tab completion for `/wechat` subcommands, configuration keys, and supported argument values (#34, thanks to @lorlike). Type a space after completing a word before completing the next argument; completion preserves the already-entered argument prefix. Document the interaction and add regression tests.
+- Update the development lockfile to TypeBox 0.34.52 and Node.js type declarations 22.20.5 (#45). Production dependency declarations and supported Node.js versions are unchanged; this does not upgrade a separately installed Pi host.
+- Group npm and GitHub Actions version updates into one weekly Dependabot PR, with major upgrades excluded for explicit review (#43).
+
+### 中文
+
+- 增加 `/wechat` 子命令、配置项及支持的参数值的 Tab 补全（#34，感谢 @lorlike）。补全一个词后需先输入空格，再补全下一个参数；保留已输入的参数前缀，并补充操作说明和回归测试。
+- 将开发锁文件中的 TypeBox 更新至 0.34.52、Node.js 类型声明更新至 22.20.5（#45）。生产依赖声明及支持的 Node.js 版本不变，不会升级单独安装的 Pi 宿主。
+- 将 npm 与 GitHub Actions 的版本更新合并为每周一个 Dependabot PR，大版本升级留待明确评审（#43）。
+
 ## [0.6.4] - 2026-10-29
 
 ### English
