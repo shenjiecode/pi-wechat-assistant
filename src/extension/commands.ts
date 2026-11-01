@@ -21,6 +21,7 @@ import type { WechatPrompt } from '../messaging/wechat-prompt.js'
 import { describeBridgeLock, bridgeStartBlocker, bridgeLockMetadata, type BridgeLockState } from '../bridge/bridge-lock.js'
 import { BridgeHandoffError, type BridgeLockResult } from '../bridge/bridge-ownership.js'
 import { cmdConfig, cmdAutostart, cmdRemoteTools, cmdPrompt } from './config-commands.js'
+import { getWechatArgumentCompletions } from './command-completion.js'
 import { loadConfig } from '../bridge/config.js'
 import { resolveImageBatchWaitMs, resolveImageMaxBytes } from '../bridge/config-values.js'
 import { clearContextTokens, clearTransportState } from '../bridge/transport-state.js'
@@ -298,6 +299,7 @@ async function cmdLogout(_args: string, ctx: Ctx, deps: CommandDeps): Promise<vo
 export function registerCommands(pi: ExtensionAPI, deps: CommandDeps): void {
   pi.registerCommand('wechat', {
     description: '微信桥接管理：login | start | stop | status | prompt | config | logout | autostart | remotetools',
+    getArgumentCompletions: getWechatArgumentCompletions,
     handler: async (args, ctx) => {
       const [sub, ...rest] = args.trim().split(/\s+/)
       const restArgs = rest.join(' ')

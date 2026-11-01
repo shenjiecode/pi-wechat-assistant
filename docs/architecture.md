@@ -33,6 +33,7 @@ assets/                        Logo and package cover
 | `extension/index.ts` | Register Pi events and tools; coordinate bridge lifecycle and turn state |
 | `extension/commands.ts`, `remote-commands.ts` | Bridge lifecycle commands and WeChat commands |
 | `extension/config-commands.ts`, `config-menu.ts` | Configuration/template commands and dialogs, including task-idle coordination |
+| `extension/command-completion.ts` | `/wechat` subcommand and argument completion for the Pi editor |
 | `extension/send-tools.ts` | Sending-tool registration, file guards and live bridge-state checks |
 | `extension/model-failure.ts`, `status.ts` | Pi failure compatibility and status presentation |
 | `bridge/auth.ts` | Login credentials and ownership entry points; compatibility re-exports |

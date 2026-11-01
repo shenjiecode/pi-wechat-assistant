@@ -127,6 +127,15 @@ describe('bridge bidirectional sync and lifecycle', () => {
 
   const command = (args: string) => commands.wechat.handler(args, ctx)
 
+  it('registers argument completion for subcommands and config values', () => {
+    const complete = commands.wechat.getArgumentCompletions
+    expect(typeof complete).toBe('function')
+    expect(complete('').map((item: any) => item.value)).toContain('config')
+    expect(complete('config handoff ').map((item: any) => item.value))
+      .toEqual(['config handoff ask', 'config handoff auto'])
+    expect(complete('start ')).toBeNull()
+  })
+
   it('toggles receipt notifications in the menu and preserves custom content', async () => {
     state.config.ackText = 'Custom receipt'
     ctx.ui.select.mockResolvedValueOnce('收件回执通知：开启 · 收到文字或图片时发送确认').mockResolvedValueOnce('关闭').mockResolvedValueOnce(undefined)
