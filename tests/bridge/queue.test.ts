@@ -82,6 +82,35 @@ function makeMsg(overrides: Partial<IncomingMessage> = {}): IncomingMessage {
   }
 }
 
+describe('pending session work', () => {
+  it('includes submitted messages after the visible queue empties', async () => {
+    const { queue, sendUserMessage } = makeQueue({ client: vi.fn(() => ({
+      sendText: vi.fn(async () => {}), startTyping: vi.fn(async () => {}),
+    })) })
+    queue.enqueue(makeMsg({ text: 'waiting for Pi input' }))
+    await vi.waitFor(() => expect(sendUserMessage).toHaveBeenCalledOnce())
+    expect(queue.pending).toBe(0)
+    expect(queue.hasPendingWork).toBe(true)
+    queue.reset()
+    expect(queue.hasPendingWork).toBe(false)
+  })
+
+  it('includes file downloads and saved attachments waiting for instructions', async () => {
+    let finish!: (value: Buffer) => void
+    vi.mocked(fetchFile).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    vi.mocked(saveFileToDisk).mockResolvedValue('project/file.txt')
+    const { queue } = makeQueue()
+    queue.enqueue(makeMsg({ fileEncryptParam: 'file', fileName: 'file.txt' }))
+    expect(queue.pending).toBe(0)
+    expect(queue.hasPendingWork).toBe(true)
+    finish(Buffer.from('file'))
+    await vi.waitFor(() => expect(saveFileToDisk).toHaveBeenCalled())
+    expect(queue.hasPendingWork).toBe(true)
+    queue.reset()
+    expect(queue.hasPendingWork).toBe(false)
+  })
+})
+
 describe('receipt notifications', () => {
   it.each([undefined, true, false])('honors sendAck=%s for text without blocking submission', async sendAck => {
     vi.mocked(getConfigCache).mockReturnValue({ sendAck, messageSourceTag: { enabled: false } })
