@@ -16,6 +16,7 @@
 
 ## 参与开发
 
+- [2026-11-06 微信 /new 验收](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/evaluations/2026-11-06-new-session-acceptance.zh.md)：候选版本启动、已完成的自动检查与待填写的真实账号验收清单。
 - [维护与验收](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.zh.md)：CI 能证明什么、依赖更新、日志排障和真实账号发布检查。
 - [架构说明](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/architecture.zh.md)：目录职责与运行流程。
 - [贡献指南](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.zh.md)：环境准备、检查命令与贡献约定。

@@ -15,6 +15,7 @@ export interface RemoteCommandDeps {
   getCtx: () => Ctx | null
   client: () => WeixinClient | null
   queueLength: () => number
+  newSession?: (args: string, userId: string, ctx: Ctx) => string | null
   /** 微信端 /tools 是否已放行（由 TUI 端 /wechat remotetools 控制，默认关闭） */
   isRemoteToolsEnabled: () => Promise<boolean>
 }
@@ -22,6 +23,12 @@ export interface RemoteCommandDeps {
 type RemoteCommandFn = (args: string, userId: string, client: WeixinClient, deps: RemoteCommandDeps) => Promise<string | null>
 
 const commands: Record<string, RemoteCommandFn> = {
+  async new(args, userId, _client, deps) {
+    const ctx = deps.getCtx()
+    if (!ctx) return '❌ 会话上下文尚未就绪，请稍后再试'
+    return deps.newSession ? deps.newSession(args, userId, ctx) : '❌ 当前 Pi 版本不支持远程 /new'
+  },
+
   async model(args, userId, client, deps) {
     const ctx = deps.getCtx()
     if (!ctx) return '❌ 会话上下文尚未就绪，请稍后再试'
@@ -253,6 +260,7 @@ const commands: Record<string, RemoteCommandFn> = {
       '/stop            停止当前生成',
       '/model           查看 / 切换模型',
       '/name <名称>     设置会话名称',
+      '/new             新建空白会话并保持微信连接',
       '/session         查看会话详情',
       '/config          查看图片相关配置',
       '/help            显示帮助',

@@ -16,6 +16,7 @@ Start with the [project README](https://github.com/shenjiecode/pi-wechat-assista
 
 ## Development
 
+- [Remote /new acceptance, 2026-11-06](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/evaluations/2026-11-06-new-session-acceptance.md): candidate setup, completed automated checks and the pending real-account checklist.
 - [Maintenance and acceptance](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.md): CI evidence, dependency updates, safe diagnostics and real-account release checks.
 - [Architecture](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/architecture.md): directory responsibilities and runtime flow.
 - [Contributing](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.md): environment setup, checks, and contribution conventions.

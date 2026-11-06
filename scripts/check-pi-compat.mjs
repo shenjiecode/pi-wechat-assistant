@@ -74,6 +74,8 @@ type HasBoundaryEvent = Extract<ExtensionEvent, { type: 'agent_before_settle' }>
 declare const pi: ExtensionAPI
 const registration = pi.on('agent_start', () => {})
 type HasUnsubscribe = typeof registration extends (...args: any[]) => any ? true : false
+type SupportsCommandDispatch = 'expandPromptTemplates' extends keyof NonNullable<Parameters<ExtensionAPI['sendUserMessage']>[1]> ? true : false
+const newSessionDispatchMatches: HasUnsubscribe extends true ? SupportsCommandDispatch : true = true
 const boundaryCapabilityMatches: HasUnsubscribe extends HasBoundaryEvent ? true : false = true
 const expectedSettled: HasSettledEvent = ${!['0.73.1', '0.78.0'].includes(version)}
 const expectedBoundary: HasBoundaryEvent = ${!['0.73.1', '0.78.0', '0.84.0', '0.84.4'].includes(version)}
