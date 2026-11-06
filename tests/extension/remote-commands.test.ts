@@ -25,6 +25,30 @@ function makeDeps(opts?: { remoteToolsEnabled?: boolean }) {
   return { deps, client, sendText }
 }
 
+describe('微信端 /new', () => {
+  it('consumes the command even before context is ready', async () => {
+    const { deps, client, sendText } = makeDeps()
+    expect(await handleRemoteCommand('/new', 'user_1', client, deps)).toBe(true)
+    expect(sendText).toHaveBeenCalledWith('user_1', expect.stringContaining('上下文尚未就绪'))
+  })
+
+  it('dispatches without an early success reply', async () => {
+    const { deps, client, sendText } = makeDeps()
+    const ctx = {} as any
+    deps.getCtx = () => ctx
+    deps.newSession = vi.fn(() => null)
+    expect(await handleRemoteCommand('/new', 'user_1', client, deps)).toBe(true)
+    expect(deps.newSession).toHaveBeenCalledWith('', 'user_1', ctx)
+    expect(sendText).not.toHaveBeenCalled()
+  })
+
+  it('lists /new in help', async () => {
+    const { deps, client, sendText } = makeDeps()
+    await handleRemoteCommand('/help', 'user_1', client, deps)
+    expect(sendText).toHaveBeenCalledWith('user_1', expect.stringContaining('/new'))
+  })
+})
+
 describe('微信端 /tools 开关', () => {
   it('默认禁用：返回提示且不触碰工具权限', async () => {
     const { deps, client, sendText } = makeDeps({ remoteToolsEnabled: false })

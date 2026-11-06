@@ -15,6 +15,7 @@ import { debugLog, debugError } from '../shared/logger.js'
 import { bridgeLockMetadata } from '../bridge/bridge-lock.js'
 import { splitAndFilterMarkdown } from '../messaging/message.js'
 import { MessageQueue } from '../bridge/queue.js'
+import { registerNewSession } from './new-session.js'
 import { handleRemoteCommand, type RemoteCommandDeps } from './remote-commands.js'
 import { registerCommands, startBridge, cancelBridgeStart, type CommandDeps } from './commands.js'
 import { formatError, isAbortError, extractTextFromMessageContent } from '../shared/utils.js'
@@ -76,6 +77,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   let pollTask: Promise<void> | null = null
   let stopping: Promise<void> | null = null
   let latestCtx: Ctx | null = null
+  let pendingPollMessages = 0
   let wechatFilesDir: string | null = null
 
   const turn = new TurnContext()
@@ -300,11 +302,14 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       try {
         const messages = await activeClient.getUpdates(signal)
         retryDelay = POLL_RETRY_BASE_MS
-        for (const message of messages) {
+        for (const [index, message] of messages.entries()) {
           if (!running || signal.aborted) break
+          pendingPollMessages = messages.length - index - 1
           await handleIncomingMessage(message, activeClient)
         }
+        pendingPollMessages = 0
       } catch (error) {
+        pendingPollMessages = 0
         if (isAbortError(error)) break
         if (error instanceof SessionExpiredError) {
           notify('微信凭证失效，请手动执行 /wechat login --force 重新登录', 'error')
@@ -337,6 +342,11 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       return
     }
 
+    if (newSession.changing) {
+      await activeClient.sendText(message.userId, '⏳ 正在新建会话，请等待结果后再发送消息')
+      return
+    }
+
     if (message.text.startsWith('/')) {
       const handled = await handleRemoteCommand(message.text, message.userId, activeClient, remoteCommandDeps)
       if (handled) return
@@ -352,6 +362,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     getCtx: () => latestCtx,
     client: () => client,
     queueLength: () => queue.pending,
+    newSession: (args, userId, ctx) => newSession.request(args, userId, ctx),
     isRemoteToolsEnabled: async () => (await loadConfig()).allowRemoteTools === true,
   }
 
@@ -381,6 +392,26 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   }
 
   registerCommands(pi, commandDeps)
+
+  const newSession = registerNewSession(pi, {
+    // Hosts returning an unsubscribe function also support command dispatch.
+    // Older hosts must never receive the internal command as model input.
+    supported: () => typeof boundarySubscription === 'function',
+    pending: () => queue.hasPendingWork || agentPreparing || pendingPollMessages > 0,
+    running: () => running,
+    start: ctx => startBridge('', ctx, commandDeps, false),
+    reply: async (userId, text) => {
+      if (running && client?.userId === userId) {
+        await client.sendText(userId, text)
+        return
+      }
+      const credentials = await loadCredentials()
+      if (!credentials || credentials.userId !== userId) throw new Error('微信登录身份已变化，无法发送会话结果')
+      const sender = await WeixinClient.create(credentials)
+      try { await sender.sendText(userId, text) }
+      finally { await sender.dispose() }
+    },
+  })
 
   // ============================================================================
   // AI 工具注册
@@ -642,8 +673,14 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   // 会话关闭 → 清理 + 落盘 context tokens
   pi.on('session_shutdown', async (_event, ctx) => {
     latestCtx = ctx
-    await stopBridge({ releaseLock: true })
-    await disposeClient()
+    try {
+      await stopBridge({ releaseLock: true })
+      await disposeClient()
+    } finally {
+      process.removeListener('SIGINT', exitHandler)
+      process.removeListener('SIGTERM', exitHandler)
+      process.removeListener('beforeExit', exitHandler)
+    }
   })
 
   // --- 进程退出清理 ---
