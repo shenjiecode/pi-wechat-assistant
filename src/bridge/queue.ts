@@ -516,6 +516,12 @@ export class MessageQueue {
     if (this.batchTimer) { clearTimeout(this.batchTimer); this.batchTimer = null }
   }
 
+  get hasPendingWork(): boolean {
+    return this.queue.length > 0 || this.pendingInjection !== null
+      || this.submittedRequests.length > 0 || this.fileDownloads.size > 0
+      || this.accumulatedFiles.length > 0 || this._draining
+  }
+
   get pending(): number {
     return this.queue.length
   }

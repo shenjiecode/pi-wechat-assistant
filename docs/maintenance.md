@@ -17,6 +17,8 @@ This guide is for the maintainer or someone preparing a release. For development
 
 CI runs the test suite on Linux and Windows with Node 20.19.0, 22 and 24. The **CI success** job requires the entire matrix, minimum-runtime jobs and production audit to succeed; skipped or failed dependencies do not count as success. Configure this aggregate as a required check only after it has run successfully on GitHub. Adding a workflow file does not update repository branch-protection settings.
 
+The real Pi SDK session-replacement tests require Node >=22.19, matching the development Pi 1.5 host. They run in the Node 22/24 CI jobs. On older Node versions, Vitest explicitly reports their exclusion and still runs the extension tests; the separate Node 20.3 runtime smoke remains required. SDK tests use simulated WeChat transport and do not establish real-account delivery.
+
 Local commands, from the checkout:
 
 ```bash
