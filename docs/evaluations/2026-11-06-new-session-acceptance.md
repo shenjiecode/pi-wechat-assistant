@@ -2,7 +2,11 @@
 
 English | [简体中文](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/evaluations/2026-11-06-new-session-acceptance.zh.md)
 
-Date: 2026-11-06. Feature: [PR #49](https://github.com/shenjiecode/pi-wechat-assistant/pull/49), reviewed implementation `e54f170`, including development Pi 1.5.0 from #50. This report separates completed automated checks from the real-account tests still required on another computer. The candidate branch is `codex/release-v0.6.6`; record its actual commit before testing, because release preparation may add commits after the reviewed implementation.
+Initial record: 2026-11-06; release decision: 2026-11-09. Feature: [PR #49](https://github.com/shenjiecode/pi-wechat-assistant/pull/49), reviewed implementation `e54f170`, including development Pi 1.5.0 from #50. The delivered candidate was `d9cadfb` on `codex/release-v0.6.6`.
+
+## Maintainer acceptance and release decision
+
+On 2026-11-09, after receiving the candidate for testing on another computer, the maintainer confirmed that real-device testing was complete and explicitly requested the new release. This confirmation satisfies the maintainer's release gate for v0.6.6. The tested device/environment, exact checkout and individual checklist observations were not supplied; the rows below are therefore marked as not individually reported, rather than inferred to have passed. The automated evidence below and the earlier local QR attempt remain separate evidence. Final preparation changes only release metadata and documentation, with no runtime changes to the delivered candidate.
 
 ## Completed checks
 
@@ -15,7 +19,7 @@ Date: 2026-11-06. Feature: [PR #49](https://github.com/shenjiecode/pi-wechat-ass
 | Published Pi API checks | All eight listed versions passed: 0.73.1, 0.78.0, 0.84.0, 0.84.4, 0.99.2, 1.1.0, 1.2.0 and 1.4.0. These are declaration checks, not eight real-account runs. |
 | Full dependency audit | Zero findings in the reviewed dependency tree. |
 
-The local real-account attempt did **not** complete: the isolated bridge QR code expired; no WeChat credentials were obtained and no test messages were sent. Desktop WeChat being logged in does not establish bridge login or delivery. The maintainer stopped this local attempt and will test on another computer. Every real-account row below remains **Not run**. SDK tests and fixed model responses must not be reported as real-WeChat/real-model acceptance. No release acceptance is implied by this document.
+The agent's local real-account attempt on 2026-11-06 did **not** complete: the isolated bridge QR code expired; no WeChat credentials were obtained and no test messages were sent. Desktop WeChat being logged in did not establish bridge login or delivery. The maintainer stopped that attempt and subsequently confirmed their own real-device testing as recorded above. SDK tests and fixed model responses are not real-WeChat/real-model acceptance. The following instructions and checklist are retained for reproducibility and future tests.
 
 ## Prepare the other computer
 
@@ -46,15 +50,15 @@ Only use disposable example text and files. Keep the terminal open. Wait for eac
 
 | Step | Action and expected evidence | Result |
 | --- | --- | --- |
-| Baseline | In Pi, set `/wechat config auto-start off`, then `/wechat start`. From WeChat send `Acceptance OLD-1106: reply with this marker`. Receive a real model reply. Send `/session`; record the old ID and locate its JSONL file in the dedicated session directory. | Not run — fill in observation |
-| New session with auto-start off | After idle, hash the old session file as described below, then send `/new` from WeChat. Receive a success confirmation with a different ID, without scanning again. Before any new model prompt, send `/session`: user/assistant history counts should be zero. The old file still exists with the same hash. | Not run — fill in observation |
-| Continued messages | Send `Acceptance NEW-1106: reply with this marker`. Receive exactly one final reply and find the new exchange in the new session. The old conversation must not appear in the new context. Retained system/project instructions are expected; asking the model whether it remembers is not sufficient proof of empty context. | Not run — fill in observation |
-| Repeat | After idle, send `/new` again, then a different test marker after confirmation. ID changes again and replies continue, with no historical replay. | Not run — fill in observation |
-| Auto-start on | In Pi set `/wechat config auto-start on`; retain the desired handoff choice if prompted. Repeat `/new` and a test message. Exactly one bridge remains active and the reply arrives. | Not run — fill in observation |
-| Busy refusal | Ask the real model to run a harmless approximately 15-second wait command. While the terminal visibly shows the task running, send `/new`. Expect an explicit busy/pending refusal and unchanged session ID; after the task finishes, `/new` succeeds. A request sent after the task finishes does not test this case. | Not run — fill in observation |
-| Pending file refusal | Send a small disposable text file from WeChat without instructions. After its save acknowledgement, send `/new`: expect refusal and unchanged ID. Send instructions to read/summarize the file; after completion, `/new` succeeds. | Not run — fill in observation |
-| Cancellation and retry | Use the one-shot cancellation helper below in a separate test run. First `/new` returns cancellation with the same ID and working bridge; the second `/new` succeeds. | Not run — fill in observation |
-| Stop/restart recovery | In Pi run `/wechat stop`, then `/wechat start`; send a fresh WeChat marker and receive its reply without old-message replay. If an actual creation/restart error occurs, record it as failure, inspect `/wechat status`, and recover with `/wechat start`; a later recovery does not turn the failed case into a pass. | Not run — fill in observation |
+| Baseline | In Pi, set `/wechat config auto-start off`, then `/wechat start`. From WeChat send `Acceptance OLD-1106: reply with this marker`. Receive a real model reply. Send `/session`; record the old ID and locate its JSONL file in the dedicated session directory. | Not individually reported |
+| New session with auto-start off | After idle, hash the old session file as described below, then send `/new` from WeChat. Receive a success confirmation with a different ID, without scanning again. Before any new model prompt, send `/session`: user/assistant history counts should be zero. The old file still exists with the same hash. | Not individually reported |
+| Continued messages | Send `Acceptance NEW-1106: reply with this marker`. Receive exactly one final reply and find the new exchange in the new session. The old conversation must not appear in the new context. Retained system/project instructions are expected; asking the model whether it remembers is not sufficient proof of empty context. | Not individually reported |
+| Repeat | After idle, send `/new` again, then a different test marker after confirmation. ID changes again and replies continue, with no historical replay. | Not individually reported |
+| Auto-start on | In Pi set `/wechat config auto-start on`; retain the desired handoff choice if prompted. Repeat `/new` and a test message. Exactly one bridge remains active and the reply arrives. | Not individually reported |
+| Busy refusal | Ask the real model to run a harmless approximately 15-second wait command. While the terminal visibly shows the task running, send `/new`. Expect an explicit busy/pending refusal and unchanged session ID; after the task finishes, `/new` succeeds. A request sent after the task finishes does not test this case. | Not individually reported |
+| Pending file refusal | Send a small disposable text file from WeChat without instructions. After its save acknowledgement, send `/new`: expect refusal and unchanged ID. Send instructions to read/summarize the file; after completion, `/new` succeeds. | Not individually reported |
+| Cancellation and retry | Use the one-shot cancellation helper below in a separate test run. First `/new` returns cancellation with the same ID and working bridge; the second `/new` succeeds. | Not individually reported |
+| Stop/restart recovery | In Pi run `/wechat stop`, then `/wechat start`; send a fresh WeChat marker and receive its reply without old-message replay. If an actual creation/restart error occurs, record it as failure, inspect `/wechat status`, and recover with `/wechat start`; a later recovery does not turn the failed case into a pass. | Not individually reported |
 
 For history evidence, locate the exact old JSONL file by its recorded session ID. In a second PowerShell window, after the baseline turn is complete and before `/new`:
 
@@ -100,4 +104,4 @@ Run `/wechat start`, record the ID, and perform the cancellation/retry row throu
 
 ## Finish and hand off
 
-Stop the test bridge with `/wechat stop` and exit Pi. Leave production state untouched. Fill in each row with **Pass / Fail / Not run**, actual observations and sanitized evidence. Include any skipped device or scenario, not just successes. Report the tested candidate SHA; if code changes after testing, assess whether affected cases must be repeated. Merge/publish only after the maintainer accepts this real-account record; automated checks alone do not satisfy that gate.
+Stop the test bridge with `/wechat stop` and exit Pi. Leave production state untouched. Fill in each row with **Pass / Fail / Not run**, actual observations and sanitized evidence. Include any skipped device or scenario, not just successes. Report the tested candidate SHA; if code changes after testing, assess whether affected cases must be repeated. For future releases, record maintainer acceptance separately from automated results. The v0.6.6 release decision is recorded above.

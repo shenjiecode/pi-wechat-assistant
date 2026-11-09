@@ -6,21 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [0.6.6] - Unreleased
+## [0.6.6] - 2026-11-09
 
 ### English
 
 - Add WeChat `/new` to start an empty Pi conversation in the same project, preserve previous history, and restore the bridge even when auto-start is disabled (#49, thanks to @nekoium). Requires Pi 0.99.2 or newer; unsupported hosts return an upgrade explanation.
 - Refuse session replacement while Pi is busy or has queued work, or the bridge has pending messages, downloads, or saved attachments awaiting instructions. Report cancellation, creation failure, and bridge restart failure without claiming success prematurely.
 - Update the development Pi lockfile to 1.5.0 (#50); production dependencies and separately installed user hosts are unchanged. Run real Pi SDK tests on Node >=22.19 while retaining extension tests and minimum-runtime checks on older supported Node versions.
-- Candidate only: automated checks have passed, but real WeChat acceptance remains pending. No real-account delivery or mobile acceptance is claimed.
 
 ### 中文
 
 - 新增微信 `/new`，在同一项目中创建空白 Pi 会话，保留旧历史，并在关闭自动启动时仍恢复桥接（#49，感谢 @nekoium）。需要 Pi 0.99.2 或更新版本；不支持的宿主会提示升级。
 - 当 Pi 忙碌或有排队任务，或桥接有待处理消息、下载及等待指令的已保存附件时，拒绝切换。区分取消、创建失败和桥接恢复失败，避免提前报告成功。
 - 将开发用 Pi 锁文件升级至 1.5.0（#50）；生产依赖和用户单独安装的宿主不变。真实 Pi SDK 测试在 Node >=22.19 上运行，较旧受支持 Node 仍保留扩展测试及最低运行检查。
-- 当前仅为候选版本：自动化检查已通过，真实微信验收待完成，不声明真实账号投递或手机端验收通过。
 
 ## [0.6.5] - 2026-11-01
 
