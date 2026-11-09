@@ -61,6 +61,8 @@ Press Tab after `/wechat ` to complete subcommands and their arguments (for exam
 
 In WeChat, send `/help` for remote commands. **WeChat `/stop` cancels the AI task; pi `/wechat stop` stops the bridge.**
 
+Send `/new` in WeChat to start an empty conversation and reconnect the bridge, even with auto-start off. Old history stays on disk; system and project instructions still apply. Requires Pi 0.99.2 or newer. Wait until the current task and pending messages finish, then wait for confirmation before sending the next task. See [details and failure recovery](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.md#start-a-fresh-conversation-from-wechat).
+
 Keep the computer and pi running. Only the bound WeChat user is accepted, and one bridge can own the shared local account state at a time. Desktop mirroring is off by default. File-only messages are saved; follow with text to request processing. See the FAQ for sending limits and troubleshooting.
 
 ### Guides

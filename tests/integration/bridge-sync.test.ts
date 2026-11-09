@@ -127,6 +127,24 @@ describe('bridge bidirectional sync and lifecycle', () => {
 
   const command = (args: string) => commands.wechat.handler(args, ctx)
 
+  it.each(['busy', 'Pi queue', 'bridge queue', 'same receive batch', 'unsupported host'])('refuses remote /new for %s without submitting a prompt', async reason => {
+    ctx.hasPendingMessages = vi.fn(() => reason === 'Pi queue')
+    if (reason === 'unsupported host') installExtension(false)
+    if (reason === 'busy') ctx.isIdle.mockReturnValue(false)
+    const incoming = (text: string) => ({
+      userId: 'bound-user', raw: { from_user_id: 'bound-user' }, type: 'text', text,
+      imageUrls: [], timestamp: new Date(), contextToken: '',
+    })
+    const messages = [incoming('/new')]
+    if (reason === 'same receive batch') messages.push(incoming('/status'))
+    state.client.getUpdates.mockResolvedValueOnce(messages)
+    state.client.sendText.mockClear()
+    if (reason === 'bridge queue') state.queue.pendingInjection = { text: 'waiting' }
+    await command('start')
+    await vi.waitFor(() => expect(state.client.sendText).toHaveBeenCalledWith('bound-user', expect.stringContaining('❌')))
+    expect(sendUserMessage).not.toHaveBeenCalled()
+  })
+
   it('registers argument completion for subcommands and config values', () => {
     const complete = commands.wechat.getArgumentCompletions
     expect(typeof complete).toBe('function')
