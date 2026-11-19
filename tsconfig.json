@@ -16,6 +16,6 @@
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": ["index.ts", "src"],
+  "include": ["index.ts", "src", "scripts/test-pending-reply.ts"],
   "exclude": ["node_modules", "dist"]
 }

@@ -17,6 +17,12 @@ describe('compact WeChat footer', () => {
     expect(formatWechatStatus({ ...pending, running: false }, plain)).toBe('[微信 ⏸]')
   })
 
+  it('distinguishes inbound work, pending replies and uncertain deliveries', () => {
+    const state = { ...active, pending: 2, pendingReplies: 3, uncertainReplies: 1 }
+    expect(formatWechatStatus(state, plain)).toBe('[微信 ⇄ ▶ | 待处理:2 | 待补发:3 | 送达待确认:1]')
+    expect(formatWechatStatus({ ...state, running: false }, plain)).toBe('[微信 ⏸]')
+  })
+
   it.each(['truecolor', '24bit', 'TRUECOLOR'])('colors the label and running indicator WeChat green on %s terminals', COLORTERM => {
     expect(formatWechatStatus(active, { COLORTERM })).toBe('[\x1b[38;2;7;193;96m微信\x1b[39m ⇄ \x1b[38;2;7;193;96m▶\x1b[39m]')
   })

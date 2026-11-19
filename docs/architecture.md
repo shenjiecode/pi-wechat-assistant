@@ -42,6 +42,7 @@ assets/                        Logo and package cover
 | `bridge/state-storage.ts` | Shared state directory and JSON file permissions/read/write helpers |
 | `bridge/bridge-lock.ts`, `bridge-ownership.ts` | Inspect ownership, acquire and release locks, coordinate handoff |
 | `bridge/queue.ts` | Batch incoming messages, prepare attachments and submit Pi requests |
+| `bridge/outbox.ts` | Account-scoped durable rejected text, serialized replay and chunk progress; suspend ambiguous deliveries |
 | `wechat/api.ts`, `client.ts` | iLink requests, polling, sending and message-send credentials |
 | `wechat/media.ts`, `security.ts`, `types.ts` | Media handling, bound-sender checks and protocol types |
 | `messaging/` | Format outgoing text, mark message sources and load reply rules |
@@ -71,7 +72,9 @@ flowchart LR
 
 4. Pi events drive reply delivery through the formatter and WeChat client. Desktop input mirroring follows the bidirectional setting, which is off by default.
 
-5. Stopping or handing off drains bridge work and releases ownership. Cross-session handoff has dedicated filesystem tests; integration tests cover the extension's event behavior.
+5. When AI text or a model error notice still gets `ret=-2` after the existing fallback, the outbox atomically stores its unsent chunks. Authorized, deduplicated incoming activity refreshes context and triggers bounded replay before the new command/input is handled. Ambiguous delivery is not blindly retried. The outbox neither scans Pi history nor stores stale context tokens.
+
+6. Load the outbox only after acquiring the bridge lock. Stop/handoff waits for polling, sends and outbox writes before releasing ownership, so successive owners cannot overwrite each other's records. Cross-session handoff has dedicated filesystem tests; integration tests cover the extension's event behavior.
 
 ## Package and local state
 

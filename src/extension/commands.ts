@@ -15,6 +15,7 @@ import {
 } from '../bridge/auth.js'
 import { WeixinClient, type ApiCallResult } from '../wechat/client.js'
 import { MessageQueue } from '../bridge/queue.js'
+import type { OutboxStatus } from '../bridge/outbox.js'
 import { renderQrCode, formatError } from '../shared/utils.js'
 import { QR_POLL_INTERVAL_MS, QR_MAX_REFRESH } from '../shared/constants.js'
 import type { WechatPrompt } from '../messaging/wechat-prompt.js'
@@ -47,6 +48,7 @@ export interface CommandDeps {
   latestCtx: () => Ctx | null
   setLatestCtx: (ctx: Ctx) => void
   updateStatusBar: () => void
+  outboxStatus?: () => OutboxStatus
   notify: (message: string, level: 'info' | 'warning' | 'error') => void
   disposeClient: () => Promise<void>
 }
@@ -253,6 +255,7 @@ async function cmdStatus(_args: string, ctx: Ctx, deps: CommandDeps): Promise<vo
   deps.setLatestCtx(ctx)
   const activeClient = deps.getClient()
   const config = await loadConfig()
+  const outbox = deps.outboxStatus?.() ?? { pending: 0, uncertain: 0 }
   const lines = [
     '微信来源与回复约定: ' + (config.messageSourceTag?.enabled === false ? '已关闭' : '已开启（默认）'),
     '提示词位置: 系统提示词中的固定微信规则（仅作用于当前微信请求）',
@@ -264,7 +267,7 @@ async function cmdStatus(_args: string, ctx: Ctx, deps: CommandDeps): Promise<vo
     `消息发送凭据: ${activeClient?.hasContextToken ? '已保存（不代表仍有效）' : '未获取（发送时尝试不携带此凭据）'}`,
     `最近发送: ${describeApiResult(activeClient?.lastSend, 'API 返回成功（不代表已读）')}`,
     ...(activeClient?.lastSend && !activeClient.lastSend.success && activeClient.lastSend.code === -2
-      ? ['发送被拒提示: 微信要求新的用户活动，请先从微信发送一条消息，然后重试。']
+      ? ['发送被拒提示: 请从微信发送一条新消息，已暂存的文本回复将自动补发；媒体需重新发送。']
       : []),
     `上线状态通知: ${describeApiResult(activeClient?.lastLifecycle?.start, 'API 返回成功（不代表客户端已更新）')}`,
     `下线状态通知: ${describeApiResult(activeClient?.lastLifecycle?.stop, 'API 返回成功（不代表客户端已更新）')}`,
@@ -272,6 +275,8 @@ async function cmdStatus(_args: string, ctx: Ctx, deps: CommandDeps): Promise<vo
     `账号 ID: ${activeClient?.accountId ?? '-'}`,
     `用户 ID: ${activeClient?.userId ?? '-'}`,
     `排队消息: ${deps.queue.pending}`,
+    `待补发回复: ${outbox.pending}`,
+    `送达待确认: ${outbox.uncertain}（不自动重发，请在 Pi 会话中核对）`,
     `凭证路径: ${getCredentialsPath()}`,
     `自动启动: ${config.autoStart ? '已开启' : '已关闭'}`,
     `持锁接管: ${config.handoff === 'auto' ? '自动（仅交互界面和支持协作交接的旧会话）' : '询问（默认）'}`,

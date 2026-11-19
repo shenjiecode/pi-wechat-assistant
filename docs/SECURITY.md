@@ -4,6 +4,8 @@ English | [简体中文](https://github.com/shenjiecode/pi-wechat-assistant/blob
 
 This extension handles local login credentials, message-send credentials, conversation content and project files. Never include real tokens, account identifiers, private messages or unredacted logs in public issues or pull requests.
 
+Deferred AI text, recipient identifiers, timestamps and original session/project metadata are stored as plaintext under `~/.pi/agent/wechat-assistant/outbox/`, without login or message context tokens. Files are partitioned by bot account and bound user, with POSIX directory/file modes `0700`/`0600`; check local account ACLs on Windows. Successfully replayed records are removed; uncertain deliveries remain for review. Stopping or logging out does not delete the outbox. Never upload it publicly; stop the bridge before backing up or removing records you no longer need.
+
 ## Reporting a vulnerability
 
 Use [Report a vulnerability](https://github.com/shenjiecode/pi-wechat-assistant/security/advisories/new) to submit a private report. Include the affected version, impact, and a minimal reproduction with fake credentials. Do not disclose exploit details or sensitive data in public issues.
