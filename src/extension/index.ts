@@ -15,6 +15,7 @@ import { debugLog, debugError } from '../shared/logger.js'
 import { bridgeLockMetadata } from '../bridge/bridge-lock.js'
 import { splitAndFilterMarkdown } from '../messaging/message.js'
 import { MessageQueue } from '../bridge/queue.js'
+import { ReplyOutbox, OutboxStorageError, type ReplyTransport } from '../bridge/outbox.js'
 import { registerNewSession } from './new-session.js'
 import { handleRemoteCommand, type RemoteCommandDeps } from './remote-commands.js'
 import { registerCommands, startBridge, cancelBridgeStart, type CommandDeps } from './commands.js'
@@ -70,6 +71,7 @@ class TurnContext {
 export default function wechatAssistant(pi: ExtensionAPI) {
   const modelFailure = new ModelFailureNotice()
   let client: WeixinClient | null = null
+  let outbox: ReplyOutbox | null = null
   let running = false
   let agentIdle = true
   let agentPreparing = false
@@ -119,6 +121,8 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       running,
       bidirectional: getConfigCache().bidirectionalSync === true,
       pending: queue.pending,
+      pendingReplies: outbox?.status.pending,
+      uncertainReplies: outbox?.status.uncertain,
       sendFailed: client?.lastSend?.success === false,
     }))
   }
@@ -158,10 +162,11 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       client.onNeedsFreshContext = undefined
     }
     client = value
+    outbox = null
     if (client) {
       client.onStatusChange = updateStatusBar
       client.onNeedsFreshContext = () =>
-        notify('微信发送被拒（ret=-2）：通常需要你先从微信发送一条消息激活会话，之后本端即可直接回复。', 'warning')
+        notify('微信发送被拒（ret=-2）：请从微信发送一条消息激活会话后重试。', 'warning')
     }
     queue.lastWechatUser = client ? { userId: client.userId, contextToken: '' } : null
   }
@@ -237,6 +242,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     }
     pollAbort?.abort()
     const sendsFinished = client?.pauseSending()
+    const outboxFinished = outbox?.pause()
     const typingUser = queue.activeRequest?.userId
     queue.reset()
     turn.reset()
@@ -247,6 +253,9 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     pollAbort = null
     trace('send-drain')
     await sendsFinished
+    // Rejected in-flight sends may still be writing their unsent suffix.
+    // The next owner must not load the outbox until these writes have finished.
+    await outboxFinished
     if (wasRunning && client) {
       trace('state-flush')
       await client.flushReceiveState()
@@ -272,11 +281,48 @@ export default function wechatAssistant(pi: ExtensionAPI) {
   }
 
   async function prepareBridge(): Promise<void> {
+    // startBridge calls this only after acquiring the bridge lock.
+    if (client) outbox = await ReplyOutbox.open({ accountId: client.accountId, userId: client.userId }, updateStatusBar)
     client?.resumeSending()
     registerWechatTools(true)
     const active = pi.getActiveTools()
     const missing = WECHAT_TOOL_NAMES.filter(name => !active.includes(name))
     if (missing.length) pi.setActiveTools([...active, ...missing])
+  }
+
+  // --- 可恢复的文本回复（不包括回执、命令回复、桌面输入或媒体工具） ---
+
+  function replyTransport(activeClient: WeixinClient): ReplyTransport {
+    const signal = pollAbort?.signal
+    return {
+      active: () => running && client === activeClient && !signal?.aborted,
+      // Report the durable outbox outcome, not an earlier transport warning.
+      send: text => activeClient.sendText(activeClient.userId, text, { hintOnRejection: false }),
+    }
+  }
+
+  function reportOutboxError(error: unknown): void {
+    if (error instanceof OutboxStorageError) notify(error.message, 'error')
+  }
+
+  const outboxStatus = () => outbox?.status ?? { pending: 0, uncertain: 0 }
+
+  async function sendReply(userId: string, text: string, ctx: Ctx | null = latestCtx) {
+    const activeClient = client
+    const activeOutbox = outbox
+    if (!running || !activeClient || !activeOutbox || userId !== activeClient.userId) return 'stopped'
+    try {
+      const result = await activeOutbox.deliver(splitAndFilterMarkdown(text), {
+        cwd: ctx?.cwd ?? '', sessionId: ctx?.sessionManager?.getSessionId(),
+      }, replyTransport(activeClient))
+      if (result === 'queued' && activeOutbox.status.pending === 1) {
+        notify('微信回复已暂存（发送被拒 ret=-2）；从微信发送一条新消息后将自动补发。', 'warning')
+      }
+      return result
+    } catch (error) {
+      reportOutboxError(error)
+      throw error
+    }
   }
 
   // --- 轮询 ---
@@ -330,7 +376,21 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       log('[AUTH] 丢弃未绑定用户消息')
       return
     }
+    if (message.userId !== activeClient.userId) return
     log(`收到消息: type=${message.type}, textLen=${message.text?.length ?? 0}, images=${message.imageUrls.length}`)
+
+    // getUpdates has already refreshed context and deduplicated this activity.
+    // Replay before commands (including /new) and new prompts, but a failure
+    // must never consume the new input. Only this bridge owner may send.
+    try { await outbox?.replay(replyTransport(activeClient)) }
+    catch (error) {
+      log(`待发回复补发失败: ${debugError(error)}`)
+      reportOutboxError(error)
+      if (!(error instanceof OutboxStorageError) && outbox?.status.uncertain) {
+        notify('补发时无法确认是否送达，已暂停该条回复的自动补发；请在 Pi 会话中核对。', 'warning')
+      }
+    }
+    if (!running || client !== activeClient || pollAbort?.signal.aborted) return
 
     if (UNSUPPORTED_TYPES.has(message.type)) {
       const reply = UNSUPPORTED_REPLY[message.type] ?? UNSUPPORTED_REPLY['unknown']
@@ -362,6 +422,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     getCtx: () => latestCtx,
     client: () => client,
     queueLength: () => queue.pending,
+    outboxStatus,
     newSession: (args, userId, ctx) => newSession.request(args, userId, ctx),
     isRemoteToolsEnabled: async () => (await loadConfig()).allowRemoteTools === true,
   }
@@ -387,6 +448,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     latestCtx: () => latestCtx,
     setLatestCtx: (ctx) => { latestCtx = ctx },
     updateStatusBar,
+    outboxStatus,
     notify,
     disposeClient,
   }
@@ -481,7 +543,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     await requestClient?.stopTyping(request.userId).catch(() => {})
     try {
       if (running && !requestSignal?.aborted && client === requestClient) {
-        await requestClient?.sendText(request.userId, `⚠️ 无法开始模型请求：${problem}`)
+        await sendReply(request.userId, `⚠️ 无法开始模型请求：${problem}`, ctx)
       }
     }
     catch (error) { log(`模型启动错误通知发送失败: ${debugError(error)}`) }
@@ -604,16 +666,10 @@ export default function wechatAssistant(pi: ExtensionAPI) {
 
     log(`[MSG-END] incremental send, textLen=${text.length} sentCount=${turn.sentCount}`)
 
-    const sendSignal = pollAbort?.signal
     try {
-      const chunks = splitAndFilterMarkdown(text)
-      for (let i = 0; i < chunks.length; i++) {
-        if (!running || sendSignal?.aborted) break
-        log(`[MSG-END-CHUNK] ${i + 1}/${chunks.length} len=${chunks[i].length}`)
-        await client.sendText(targetUserId, chunks[i])
-      }
-      turn.sentCount++
-      log(`[MSG-END-DONE] incrementally sent, totalSent=${turn.sentCount}`)
+      const result = await sendReply(targetUserId, text, ctx)
+      if (result === 'sent') turn.sentCount++
+      log(`[MSG-END-DONE] delivery=${result} totalSent=${turn.sentCount}`)
     } catch (err) {
       log(`[MSG-END-ERROR] ${debugError(err)}`)
     }
@@ -648,7 +704,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     if (!turn.wechatConversationActive && getConfigCache().bidirectionalSync !== true) return
     const notice = modelFailure.take(mode, aborted)
     if (!notice) return
-    try { await client.sendText(turn.targetUser, notice) }
+    try { await sendReply(turn.targetUser, notice) }
     catch (error) { log(`模型错误通知发送失败: ${debugError(error)}`) }
   }
 

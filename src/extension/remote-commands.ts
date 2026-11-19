@@ -7,6 +7,7 @@ import { debugLog, debugError } from '../shared/logger.js'
 import { formatError } from '../shared/utils.js'
 import { getImageMaxBytes, getImageBatchWaitMs } from '../bridge/queue.js'
 import { WeixinClient } from '../wechat/client.js'
+import type { OutboxStatus } from '../bridge/outbox.js'
 
 type Ctx = ExtensionContext | ExtensionCommandContext
 
@@ -15,6 +16,7 @@ export interface RemoteCommandDeps {
   getCtx: () => Ctx | null
   client: () => WeixinClient | null
   queueLength: () => number
+  outboxStatus?: () => OutboxStatus
   newSession?: (args: string, userId: string, ctx: Ctx) => string | null
   /** 微信端 /tools 是否已放行（由 TUI 端 /wechat remotetools 控制，默认关闭） */
   isRemoteToolsEnabled: () => Promise<boolean>
@@ -118,6 +120,9 @@ const commands: Record<string, RemoteCommandFn> = {
     lines.push(`Thinking: ${deps.pi.getThinkingLevel()}`)
     lines.push(`工具数: ${deps.pi.getActiveTools().length}`)
     lines.push(`排队消息: ${deps.queueLength()}`)
+    const outbox = deps.outboxStatus?.() ?? { pending: 0, uncertain: 0 }
+    lines.push(`待补发回复: ${outbox.pending}`)
+    if (outbox.uncertain) lines.push(`送达待确认: ${outbox.uncertain}（不自动重发，请在 Pi 会话中核对）`)
 
     const branch = ctx.sessionManager.getBranch()
     let startIndex = 0

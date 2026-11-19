@@ -32,7 +32,7 @@ vi.mock('../../src/wechat/client.js', () => ({
   SessionExpiredError: class extends Error {},
   WeixinClient: { create: async () => {
     const client = {
-      userId: 'bound-user', onStatusChange: undefined, onNeedsFreshContext: undefined,
+      userId: 'bound-user', accountId: 'bot', onStatusChange: undefined, onNeedsFreshContext: undefined,
       sendText: vi.fn(async () => {}), notifyStart: vi.fn(async () => {}), notifyStop: vi.fn(async () => {}),
       pauseSending: vi.fn(async () => {}), resumeSending: vi.fn(),
       reloadReceiveState: vi.fn(async () => {}), flushReceiveState: vi.fn(async () => {}),
