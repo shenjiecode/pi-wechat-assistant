@@ -218,7 +218,7 @@ export class WeixinClient {
     }
   }
 
-  private async sendWithFallback(userId: string, send: (contextToken: string | undefined) => Promise<unknown>): Promise<void> {
+  private async sendWithFallback(userId: string, send: (contextToken: string | undefined) => Promise<unknown>, hintOnRejection = true): Promise<void> {
     if (!isAuthorizedWeChatSender(userId, this.userId)) throw new Error('只能发送给扫码绑定用户')
     const contextToken = this.contextTokens.get(userId)
     try {
@@ -234,9 +234,10 @@ export class WeixinClient {
       this.sendFailureHinted = false
     } catch (error) {
       this.lastSend = { ...failedApiCall(error), needsFreshContext: error instanceof ApiError && error.code === -2 }
-      // One warning per failure streak: repeats add no information, and a
-      // successful send re-arms the hint for the next incident.
-      if (this.lastSend.needsFreshContext && !this.sendFailureHinted) {
+      // Outbox callers report one final outcome after persistence. Suppressing
+      // their transport hint must not suppress unrelated direct/media failures.
+      // A successful send re-arms the hint for the next incident.
+      if (hintOnRejection && this.lastSend.needsFreshContext && !this.sendFailureHinted) {
         this.sendFailureHinted = true
         this.onNeedsFreshContext?.()
       }
@@ -339,10 +340,14 @@ export class WeixinClient {
 
   // --- 消息发送 ---
 
-  async sendText(userId: string, text: string): Promise<void> {
+  async sendText(userId: string, text: string, options: { hintOnRejection?: boolean } = {}): Promise<void> {
     // Validate emptiness without stripping code indentation, trailing spaces or newlines.
     if (!text.trim()) throw new Error('Message text cannot be empty')
-    await this.trackSend(() => this.sendWithFallback(userId, contextToken => apiSendMessage(this.baseUrl, this.token, userId, text, contextToken)))
+    await this.trackSend(() => this.sendWithFallback(
+      userId,
+      contextToken => apiSendMessage(this.baseUrl, this.token, userId, text, contextToken),
+      options.hintOnRejection !== false,
+    ))
   }
 
   /** 发送文件 — 委托给 sendMedia */

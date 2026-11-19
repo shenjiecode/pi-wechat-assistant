@@ -15,7 +15,17 @@ Run `pi list` in the system terminal to confirm the configured source, then reop
 3. Send a fresh text message from the bound WeChat account. Other users' messages are not accepted.
 4. If the message reaches pi but no AI response is produced, test a direct prompt in pi and inspect model/authentication errors. If pi produces a reply but WeChat receives nothing, inspect the last send result.
 
-Saved login credentials do not guarantee unrestricted proactive sending. For persistent `ret=-2` failures, send a fresh message from WeChat and retry. Repeatedly reinstalling the extension does not refresh that conversation activity. If login has expired, use `/wechat login --force` and scan again.
+Saved login credentials do not guarantee unrestricted proactive sending. For persistent `ret=-2` failures, send a fresh WeChat message: saved AI text replies are retried automatically, but files and images need to be sent again. Reinstalling the extension does not refresh conversation activity. If login has expired, use `/wechat login --force` and scan again.
+
+## The task finished but its result never arrived
+
+WeChat can reject a bot reply; `ret=-2` alone does not establish a fixed conversation-expiry window. If the existing one-time fallback still returns `-2`, the extension saves the failed and unsent parts of AI text replies and model error notices. Successfully sent chunks are not replayed. Receipts, command replies, desktop input mirrors, images and files are outside this outbox. Normal sends need no extra action, and there is no new `/last` command. Successful persistence produces one combined “微信回复已暂存（发送被拒 ret=-2）” warning with recovery instructions, rather than separate transport, simulation and save warnings. A persistence failure reports failure without claiming the reply was saved.
+
+Send any fresh message from the bound user, including `/status`. After refreshing send context, the bridge attempts the saved replies before handling the new input. A replay is labeled “【补发】” with the original save time. Another rejection retains the reply without a timed retry loop; replay failures do not consume the new input. Each activation sends at most 20 chunks and yields after about five seconds (an already-started request must still settle). Remaining chunks wait for another incoming message. The extension cannot guarantee a phone-side notification while WeChat refuses delivery.
+
+The outbox is isolated by bot account and bound user. Stop, restart, same-account handoff and `/new` retain saved replies, without injecting old conversations into the new model context. After reconnecting, a fresh WeChat message is still required to trigger replay. Other accounts cannot receive these replies. Pi `/wechat status` and WeChat `/status` show pending counts.
+
+To avoid duplicates, a replay timeout, crash during sending, or failure to checkpoint a successful send marks that reply as “送达待确认” (delivery uncertain) and suspends its automatic replay. Check the original Pi session and resend manually if needed; uncertainty does not prove non-delivery. Each account/user pair holds at most 100 replies and 4 MiB, without silently evicting older replies. Queue-full or disk-write errors are reported in Pi and do not guarantee that the new reply was saved. Corrupt or unreadable records prevent bridge startup rather than being overwritten with an empty queue.
 
 ## I only receive a receipt or a model error
 
@@ -62,7 +72,7 @@ Preferences are cached per process. Direct JSON edits or changes made by another
 
 - WeChat `/stop` requests cancellation of the AI task.
 - Pi `/wechat stop` stops this session's bridge, blocks new sends, and retains login credentials.
-- Pi `/wechat logout` stops the bridge and clears local login/context/cursor state; it does not reset preferences or the custom reply template.
+- Pi `/wechat logout` stops the bridge and clears local login/context/cursor state; it does not reset preferences or the custom reply template. Saved replies remain recoverable when the same bot account and user are bound again. To remove them, stop the bridge first, then back up or delete `~/.pi/agent/wechat-assistant/outbox/` (deletion cancels replay).
 
 ## What should I include in a bug report?
 

@@ -257,6 +257,35 @@ describe('WeixinClient sender authorization', () => {
     expect(mocks.notifyNeedsFreshContext).toHaveBeenCalledTimes(2)
   })
 
+  it('lets outbox callers suppress the early hint without hiding diagnostics or consuming the direct-send hint', async () => {
+    mocks.loadContextTokens.mockResolvedValue({ lastUserId: null, tokens: { 'bound-user': 'cached' } })
+    mocks.sendMessage.mockRejectedValue(new ApiError('prepare failed', { status: 200, code: -2 }))
+    const client = await WeixinClient.create(credentials)
+    client.onNeedsFreshContext = mocks.notifyNeedsFreshContext
+    await expect(client.sendText(credentials.userId, 'queued reply', { hintOnRejection: false })).rejects.toThrow('prepare failed')
+    expect(mocks.sendMessage).toHaveBeenCalledTimes(2)
+    expect(mocks.notifyNeedsFreshContext).not.toHaveBeenCalled()
+    expect(client.lastSend).toMatchObject({ success: false, code: -2, needsFreshContext: true })
+    await expect(client.sendText(credentials.userId, 'direct notice')).rejects.toThrow('prepare failed')
+    expect(mocks.notifyNeedsFreshContext).toHaveBeenCalledTimes(1)
+    await expect(client.sendText(credentials.userId, 'another queued reply', { hintOnRejection: false })).rejects.toThrow()
+    expect(mocks.notifyNeedsFreshContext).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not silence an unrelated direct send while an outbox send is in flight', async () => {
+    const client = await WeixinClient.create(credentials)
+    client.onNeedsFreshContext = mocks.notifyNeedsFreshContext
+    let reject!: (error: Error) => void
+    mocks.sendMessage.mockImplementationOnce(() => new Promise<void>((_resolve, fail) => { reject = fail }))
+    const quiet = client.sendText(credentials.userId, 'queued reply', { hintOnRejection: false })
+    mocks.sendMessage.mockRejectedValueOnce(new ApiError('direct rejection', { status: 200, code: -2 }))
+    await expect(client.sendText(credentials.userId, 'direct notice')).rejects.toThrow('direct rejection')
+    expect(mocks.notifyNeedsFreshContext).toHaveBeenCalledTimes(1)
+    reject(new ApiError('quiet rejection', { status: 200, code: -2 }))
+    await expect(quiet).rejects.toThrow('quiet rejection')
+    expect(mocks.notifyNeedsFreshContext).toHaveBeenCalledTimes(1)
+  })
+
   it('does not hint fresh context for non--2 failures', async () => {
     const client = await WeixinClient.create(credentials)
     client.onNeedsFreshContext = mocks.notifyNeedsFreshContext

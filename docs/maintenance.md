@@ -39,6 +39,7 @@ Record the commit, extension version, Pi package/version, Node version, OS and d
 | --- | --- |
 | Fresh login and restart | Scan and confirm; receive a real AI reply; restart and reuse credentials successfully. |
 | Text and errors | A WeChat task receives the final reply; a deliberately unavailable model produces a useful error. Restore the working model afterward. |
+| Deferred text | After an observed real `ret=-2` rejection, a fresh WeChat message receives the labeled old reply and normal new-input handling; delivered chunks do not repeat, including after restart/same-account handoff. Mark not run if rejection was not observed; do not corrupt credentials to simulate it. |
 | Images | Single image and a small image batch reach an image-capable model; no duplicate final reply. |
 | Files | Inbound file saves without starting a task; follow-up text uses it; an outgoing project file arrives and opens. |
 | Receipt off / custom text | Receipt behavior matches the setting; AI replies and file-save confirmations still work. |
@@ -49,6 +50,22 @@ Record the commit, extension version, Pi package/version, Node version, OS and d
 | Upgrade existing configuration | Custom template, unknown JSON fields, `false` toggles and zero image delay survive. |
 
 For handoff timeout, cancellation, changed ownership and unauthorized senders, keep automated regression tests as well. Do not corrupt a real credential store or force-kill a user's active task just to demonstrate an error case. The [tutorial](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/tutorial.md) provides ordinary round-trip and handoff steps.
+
+## Deterministic local rejection test
+
+Waiting a few minutes may not make WeChat reject a reply. Use the repository-only helper to trigger this path without editing credentials or disconnecting the network. It is excluded from the npm package. Stop the old test bridge and exit Pi, then run from the repository root (do not load `index.ts` alongside it):
+
+```bash
+pi --no-extensions -e ./scripts/test-pending-reply.ts
+```
+
+1. In Pi, run `/wechat start`, then `/wechat-test-reject`.
+2. From WeChat, ask “只回复：补发测试53”. Only an exact matching outgoing test reply gets one simulated `ret=-2`, including the existing context-free fallback; other requests are unchanged.
+3. Wait for “回复已暂存” and “待补发:1” in Pi. The phone should not have the test result yet. Send `/status` from WeChat.
+4. Expect “【补发】”, then “补发测试53”, then a status with zero pending replies. Another `/status` must not repeat the result.
+5. For restart recovery, exit after the reply is saved at step 3, reopen the same helper and start the bridge, then send `/status` from WeChat. Do not arm another rejection after restarting.
+
+Interception is off by default and must be armed before the task. `/wechat-test-reject off` cancels unused arming; shutdown/session replacement also removes it. The simulation disarms after the selected send, without changing media behavior. Exit the helper and start Pi normally when finished. Record this as “local simulated rejection + WeChat replay verification”, not proof of a real server-side `ret=-2`.
 
 ## Dependencies and CI maintenance
 

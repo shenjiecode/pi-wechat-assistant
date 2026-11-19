@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### English
+
+- Preserve AI text replies and model error notices rejected with `ret=-2` after the existing fallback, then replay only unsent chunks on fresh authorized WeChat activity (#53). Persist per bot/user across restart and handoff, without replaying conversation history or storing stale context tokens.
+- Show pending/uncertain delivery counts and one consolidated warning after a rejected reply is saved, without duplicate transport/test warnings. Bound replay work and storage, report persistence failures, and suspend ambiguous sends rather than risking duplicate delivery. Media, receipts, command replies and `/last` are outside this change.
+
+### 中文
+
+- AI 文本回复和模型错误通知在现有降级重试后仍被 `ret=-2` 拒收时，持久化暂存，并在授权的新微信消息到来后仅补发未送达分段（#53）。按机器人账号/用户隔离，支持重启与交接恢复，不重放会话历史，也不保存过期 context token。
+- 显示待补发及送达待确认数量；拒收回复保存成功后只显示一条合并警告，不重复显示底层及测试提示。限制补发工作量和存储容量，明确报告保存失败；送达不确定时暂停自动补发以免重复。媒体、回执、命令回复及 `/last` 不在本次范围内。
+
 ## [0.6.6] - 2026-11-09
 
 ### English

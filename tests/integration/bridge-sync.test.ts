@@ -1,8 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
+import { ApiError } from '../../src/wechat/api.js'
+import { ReplyOutbox, OutboxStorageError } from '../../src/bridge/outbox.js'
+import { splitAndFilterMarkdown } from '../../src/messaging/message.js'
+import { releaseLock } from '../../src/bridge/auth.js'
 import type { BridgeConfig } from '../../src/bridge/config.js'
 
 const state = vi.hoisted(() => ({
   config: {} as BridgeConfig,
+  // Module-level auth/transport paths also need a safe directory before setup.
+  directory: process.cwd() + '/node_modules/.cache/wechat-bridge-test-state',
+  receive: null as null | ((messages: any[]) => void),
   queue: null as any,
   lockConflict: false,
   lockState: { kind: 'missing' } as any,
@@ -35,7 +44,7 @@ vi.mock('../../src/bridge/config.js', () => ({
 }))
 vi.mock('../../src/bridge/state-storage.js', async () => ({
   ...await vi.importActual<typeof import('../../src/bridge/state-storage.js')>('../../src/bridge/state-storage.js'),
-  getStateDir: () => process.cwd() + '/node_modules/.cache/wechat-bridge-test-state',
+  getStateDir: () => state.directory,
 }))
 vi.mock('../../src/bridge/auth.js', async () => ({
   ...await vi.importActual<typeof import('../../src/bridge/auth.js')>('../../src/bridge/auth.js'),
@@ -70,18 +79,25 @@ describe('bridge bidirectional sync and lifecycle', () => {
   let oldListeners: Map<string, Function[]>
   beforeEach(async () => {
     vi.clearAllMocks()
+    const cache = path.resolve('node_modules/.cache')
+    await fs.mkdir(cache, { recursive: true })
+    state.directory = await fs.mkdtemp(path.join(cache, 'wechat-bridge-test-'))
+    state.receive = null
     vi.stubEnv('NO_COLOR', '1')
     state.config = {}
     state.lockConflict = false
     state.handoffRequested = false
     state.requestHandoff.mockReset()
     state.lockState = { kind: 'missing' }
+    state.client.userId = 'bound-user'
+    state.client.accountId = 'bot'
     state.client.hasContextToken = false
     state.client.lastSend = null
     state.client.onStatusChange = undefined
-    state.client.sendText.mockResolvedValue(undefined)
+    state.client.sendText.mockReset().mockResolvedValue(undefined)
     // No real network, credentials, locks, or user messages.
-    state.client.getUpdates.mockImplementation((signal: AbortSignal) => new Promise((resolve) => {
+    state.client.getUpdates.mockReset().mockImplementation((signal: AbortSignal) => new Promise((resolve) => {
+      state.receive = resolve
       if (signal.aborted) resolve([])
       else signal.addEventListener('abort', () => resolve([]), { once: true })
     }))
@@ -94,6 +110,8 @@ describe('bridge bidirectional sync and lifecycle', () => {
       cwd: process.cwd(), hasUI: true, isIdle: vi.fn(() => true), waitForIdle: vi.fn(),
       model: { provider: 'test', id: 'test-model' },
       modelRegistry: { hasConfiguredAuth: vi.fn(() => true), getApiKeyAndHeaders: vi.fn() },
+      sessionManager: { getSessionId: () => 'test-session', getBranch: () => [] },
+      getContextUsage: () => undefined,
       ui: { notify: vi.fn(), setStatus: vi.fn(), select: vi.fn() },
     }
     oldListeners = new Map(['SIGINT', 'SIGTERM', 'beforeExit'].map(name => [name, process.listeners(name)]))
@@ -110,6 +128,7 @@ describe('bridge bidirectional sync and lifecycle', () => {
         if (tool.exposure !== 'hidden') activeTools.push(tool.name)
       },
       getActiveTools: () => [...activeTools], setActiveTools: (names: string[]) => { activeTools = [...names] },
+      getThinkingLevel: () => 'off',
       sendUserMessage,
     } as any)
   }
@@ -123,6 +142,7 @@ describe('bridge bidirectional sync and lifecycle', () => {
     vi.restoreAllMocks()
     vi.unstubAllEnvs()
     vi.useRealTimers()
+    await fs.rm(state.directory, { recursive: true, force: true })
   })
 
   const command = (args: string) => commands.wechat.handler(args, ctx)
@@ -395,7 +415,8 @@ describe('bridge bidirectional sync and lifecycle', () => {
   }
   const reply = (text: string) => handlers.message_end({ message: { role: 'assistant', content: text } }, ctx)
 
-  const outgoing = () => state.client.sendText.mock.calls.filter(([, text]) => !text.startsWith('✅ 已收到'))
+  const outgoing = () => state.client.sendText.mock.calls
+    .filter(([, text]) => !text.startsWith('✅ 已收到')).map(([user, text]) => [user, text])
   const failure = (errorMessage = 'quota exceeded', content: unknown = []) => handlers.message_end({
     message: { role: 'assistant', stopReason: 'error', errorMessage, content },
   }, ctx)
@@ -405,6 +426,177 @@ describe('bridge bidirectional sync and lifecycle', () => {
   }
   const modern = () => { ctx.isProjectTrusted = () => ({}) }
 
+  async function activity(text: string, userId = 'bound-user') {
+    await vi.waitFor(() => expect(state.receive).toBeTypeOf('function'))
+    const receive = state.receive!
+    state.receive = null
+    receive([{
+      messageId: `activity-${state.client.getUpdates.mock.calls.length}`, userId, text, type: 'text', imageUrls: [],
+      raw: { from_user_id: userId }, contextToken: 'fresh-context', timestamp: new Date(),
+    }])
+    // A new poll starts only after replay and the incoming command/enqueue finish.
+    await vi.waitFor(() => expect(state.receive).toBeTypeOf('function'))
+  }
+  const contextRejection = () => new ApiError('prepare failed', { status: 200, code: -2 })
+
+  describe('pending text replies (#53)', () => {
+    beforeEach(() => { state.config.sendAck = false })
+
+    it.each([0, 1])('replays only the unsent suffix after failure at chunk %i, before answering /status', async failAt => {
+      await command('start')
+      await wechatInput('long task', true)
+      const text = 'A'.repeat(800) + 'B'.repeat(800) + 'C'.repeat(100)
+      const chunks = splitAndFilterMarkdown(text)
+      for (let i = 0; i < failAt; i++) state.client.sendText.mockResolvedValueOnce(undefined)
+      state.client.sendText.mockRejectedValueOnce(contextRejection())
+      await reply(text)
+      expect(outgoing().map(([, text]) => text)).toEqual(chunks.slice(0, failAt + 1))
+      expect(ctx.ui.setStatus).toHaveBeenLastCalledWith('wechat', expect.stringContaining('待补发:1'))
+      expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining('微信回复已暂存'), 'warning')
+      state.client.sendText.mockClear()
+      await handlers.agent_end({ messages: [{ role: 'assistant', content: 'historical output' }] }, ctx)
+      expect(outgoing()).toEqual([])
+      await activity('/status')
+      expect(outgoing().map(([, text]) => text)).toEqual([
+        expect.stringContaining('【补发】'), ...chunks.slice(failAt), expect.stringContaining('待补发回复: 0'),
+      ])
+      expect(sendUserMessage).toHaveBeenCalledTimes(1)
+      state.client.sendText.mockClear()
+      await activity('/status')
+      expect(outgoing()).toEqual([['bound-user', expect.stringContaining('待补发回复: 0')]])
+    })
+
+    it('emits one combined warning only after a rejected reply is durably saved', async () => {
+      await command('start')
+      await wechatInput('work', true)
+      ctx.ui.notify.mockClear()
+      state.client.sendText.mockImplementationOnce(async (_user, _text, options) => {
+        // Model the real client's per-send hint behavior.
+        if (options?.hintOnRejection !== false) state.client.onNeedsFreshContext?.()
+        throw contextRejection()
+      })
+      await reply('result')
+      expect(state.client.sendText).toHaveBeenCalledWith('bound-user', 'result', { hintOnRejection: false })
+      expect(ctx.ui.notify.mock.calls).toEqual([[
+        '微信回复已暂存（发送被拒 ret=-2）；从微信发送一条新消息后将自动补发。', 'warning',
+      ]])
+      const saved = await ReplyOutbox.open({ accountId: 'bot', userId: 'bound-user' })
+      expect(saved.status.pending).toBe(1)
+      await reply('later result')
+      expect(ctx.ui.notify).toHaveBeenCalledTimes(1) // Same pending streak, no warning spam.
+    })
+
+    it('loads saved output after extension replacement without sending before fresh activity', async () => {
+      await command('start')
+      await wechatInput('work', true)
+      state.client.sendText.mockRejectedValueOnce(contextRejection())
+      await reply('saved before restart')
+      await handlers.session_shutdown({}, ctx)
+      ctx.isIdle.mockReturnValue(true)
+      installExtension()
+      await handlers.session_start({}, ctx)
+      await command('start')
+      state.client.sendText.mockClear()
+      expect(outgoing()).toEqual([])
+      await activity('/status')
+      expect(outgoing().map(([, text]) => text)).toEqual([
+        expect.stringContaining('【补发】'), 'saved before restart', expect.stringContaining('待补发回复: 0'),
+      ])
+    })
+
+    it('keeps a second rejection queued without swallowing the new user task', async () => {
+      await command('start')
+      await wechatInput('old task', true)
+      state.client.sendText.mockRejectedValueOnce(contextRejection())
+      await reply('old result')
+      state.client.sendText.mockClear().mockRejectedValueOnce(contextRejection())
+      await activity('new task')
+      await vi.waitFor(() => expect(sendUserMessage).toHaveBeenCalledTimes(2))
+      expect(extractTextFromMessageContent(sendUserMessage.mock.calls[1][0])).toContain('new task')
+      expect(outgoing()).toHaveLength(1)
+      await command('status')
+      expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.stringContaining('待补发回复: 1'), 'info')
+    })
+
+    it('never replays to an unbound sender or through another bot account', async () => {
+      await command('start')
+      await wechatInput('work', true)
+      state.client.sendText.mockRejectedValueOnce(contextRejection())
+      await reply('private result')
+      state.client.sendText.mockClear()
+      await activity('/status', 'unbound-user')
+      expect(outgoing()).toEqual([])
+      await command('stop')
+      ctx.isIdle.mockReturnValue(true)
+      state.client.accountId = 'another-bot'
+      await command('start')
+      await activity('/status')
+      expect(outgoing()).toEqual([['bound-user', expect.stringContaining('待补发回复: 0')]])
+      await command('stop')
+      state.client.accountId = 'bot'
+      await command('start')
+      state.client.sendText.mockClear()
+      await activity('/status')
+      expect(outgoing().map(([, text]) => text)).toContain('private result')
+    })
+
+    it('saves an in-flight rejection before stop releases the bridge lock', async () => {
+      await command('start')
+      await wechatInput('work', true)
+      let reject!: (error: Error) => void
+      state.client.sendText.mockImplementationOnce(() => new Promise<void>((_resolve, fail) => { reject = fail }))
+      const sending = reply('late result')
+      await vi.waitFor(() => expect(reject).toBeTypeOf('function'))
+      vi.mocked(releaseLock).mockImplementationOnce(async () => {
+        const restored = await ReplyOutbox.open({ accountId: 'bot', userId: 'bound-user' })
+        expect(restored.status.pending).toBe(1)
+        state.lockState = { kind: 'missing' }
+      })
+      const stopped = command('stop')
+      await vi.waitFor(() => expect(state.client.pauseSending).toHaveBeenCalledTimes(1))
+      expect(state.lockState.kind).toBe('current')
+      reject(contextRejection())
+      await Promise.all([sending, stopped])
+      expect(state.lockState.kind).toBe('missing')
+    })
+
+    it('queues model failure notices too, without regenerating them on activation', async () => {
+      modern()
+      await command('start')
+      await wechatInput('work', true)
+      await failure('quota exceeded')
+      state.client.sendText.mockRejectedValueOnce(contextRejection())
+      await settle()
+      state.client.sendText.mockClear()
+      await activity('/status')
+      expect(outgoing()).toContainEqual(['bound-user', expect.stringContaining('quota exceeded')])
+      expect(sendUserMessage).toHaveBeenCalledTimes(1)
+    })
+
+    it('retains ambiguous replay outcomes and reports them without retrying on later activity', async () => {
+      await command('start')
+      await wechatInput('work', true)
+      state.client.sendText.mockRejectedValueOnce(contextRejection())
+      await reply('possibly delivered')
+      state.client.sendText.mockClear().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('timeout'))
+      await activity('/status')
+      expect(outgoing().at(-1)?.[1]).toContain('送达待确认: 1')
+      state.client.sendText.mockClear()
+      await activity('/status')
+      expect(outgoing()).toEqual([['bound-user', expect.stringContaining('送达待确认: 1')]])
+    })
+
+    it('shows storage failure without falsely claiming the reply was saved', async () => {
+      await command('start')
+      await wechatInput('work', true)
+      ctx.ui.notify.mockClear()
+      vi.spyOn(ReplyOutbox.prototype, 'deliver').mockRejectedValueOnce(new OutboxStorageError('待补发记录保存失败'))
+      await reply('result')
+      expect(ctx.ui.notify.mock.calls).toEqual([['待补发记录保存失败', 'error']])
+      expect(ctx.ui.notify).not.toHaveBeenCalledWith(expect.stringContaining('回复已暂存'), expect.anything())
+    })
+  })
+
   it('honors a saved sendAck false while still delivering AI replies, then enables custom receipts live', async () => {
     state.config.sendAck = false
     await command('start')
@@ -412,7 +604,7 @@ describe('bridge bidirectional sync and lifecycle', () => {
     await wechatInput('first', true)
     expect(state.client.sendText).not.toHaveBeenCalled()
     await reply('AI reply')
-    expect(state.client.sendText).toHaveBeenCalledWith('bound-user', 'AI reply')
+    expect(state.client.sendText).toHaveBeenCalledWith('bound-user', 'AI reply', { hintOnRejection: false })
     await handlers.agent_end({ messages: [] }, ctx)
     await command('config ack-text Custom receipt')
     await command('config ack on')
@@ -855,7 +1047,7 @@ describe('bridge bidirectional sync and lifecycle', () => {
     expect(state.client.onNeedsFreshContext).toBeTypeOf('function')
     state.client.lastSend = { success: false, at: '2026-10-13T10:00:00Z', error: 'prepare failed', code: -2, needsFreshContext: true }
     await command('status')
-    expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.stringContaining('请先从微信发送一条消息'), 'info')
+    expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.stringContaining('已暂存的文本回复将自动补发'), 'info')
     state.client.onNeedsFreshContext?.()
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining('从微信发送一条消息激活会话'), 'warning')
   })
@@ -1262,7 +1454,7 @@ describe('bridge bidirectional sync and lifecycle', () => {
     await startRun('run tests')
     await reply('tests passed')
     expect(state.client.sendText.mock.calls).toEqual([
-      ['bound-user', '[电脑端] run tests'], ['bound-user', 'tests passed'],
+      ['bound-user', '[电脑端] run tests'], ['bound-user', 'tests passed', { hintOnRejection: false }],
     ])
     expect(state.client.notifyStart).toHaveBeenCalledTimes(1)
   })
@@ -1345,12 +1537,12 @@ describe('bridge bidirectional sync and lifecycle', () => {
     expect(normalized).toEqual(before) // No internal markers or mutation of host-normalized history.
     state.client.sendText.mockClear()
     await reply('图片回复')
-    expect(state.client.sendText).toHaveBeenCalledWith('bound-user', '图片回复')
+    expect(state.client.sendText).toHaveBeenCalledWith('bound-user', '图片回复', { hintOnRejection: false })
     await handlers.agent_end({ messages: [] }, ctx)
     ctx.isIdle.mockReturnValue(true)
     await wechatInput('下一条消息', true)
     await reply('后续回复')
-    expect(state.client.sendText).toHaveBeenCalledWith('bound-user', '后续回复')
+    expect(state.client.sendText).toHaveBeenCalledWith('bound-user', '后续回复', { hintOnRejection: false })
   })
 
   it('can disable TUI sync without changing the message source selection', async () => {
@@ -1369,7 +1561,7 @@ describe('bridge bidirectional sync and lifecycle', () => {
     await handlers.input({ source: 'interactive', text: 'queued TUI input' }, ctx)
     state.client.sendText.mockClear() // Exclude the inbound acknowledgement.
     await reply('wechat reply')
-    expect(state.client.sendText.mock.calls).toEqual([['bound-user', 'wechat reply']])
+    expect(state.client.sendText.mock.calls).toEqual([['bound-user', 'wechat reply', { hintOnRejection: false }]])
     await handlers.message_start({ message: { role: 'user', content: 'queued TUI input' } }, ctx)
     await reply('TUI reply')
     expect(state.client.sendText).toHaveBeenCalledTimes(1)
@@ -1469,8 +1661,8 @@ describe('bridge bidirectional sync and lifecycle', () => {
     expect(await handlers.message_end({ message }, ctx)).toBeUndefined()
     expect(message).toEqual(original)
     expect(state.client.sendText.mock.calls).toEqual([
-      ['bound-user', '结论 文档: https://example.com/a_b'],
-      ['bound-user', '代码 (js) (1/1)\n  const x = "**";\n'],
+      ['bound-user', '结论 文档: https://example.com/a_b', { hintOnRejection: false }],
+      ['bound-user', '代码 (js) (1/1)\n  const x = "**";\n', { hintOnRejection: false }],
     ])
   })
 })

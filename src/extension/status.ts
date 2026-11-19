@@ -6,6 +6,8 @@ export interface WechatStatusState {
   bidirectional: boolean
   pending: number
   sendFailed: boolean
+  pendingReplies?: number
+  uncertainReplies?: number
 }
 
 export function formatWechatStatus(state: WechatStatusState, env: NodeJS.ProcessEnv = process.env): string {
@@ -22,5 +24,7 @@ export function formatWechatStatus(state: WechatStatusState, env: NodeJS.Process
     : `${logo} ${indicator}`]
   if (state.running && state.pending > 0) parts.push(`待处理:${state.pending}`)
   if (state.running && state.sendFailed) parts.push('发送失败')
+  if (state.running && state.pendingReplies) parts.push(`待补发:${state.pendingReplies}`)
+  if (state.running && state.uncertainReplies) parts.push(`送达待确认:${state.uncertainReplies}`)
   return `[${parts.join(' | ')}]`
 }
