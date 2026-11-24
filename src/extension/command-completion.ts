@@ -38,6 +38,7 @@ const CONFIG_KEYS: ConfigKeySpec[] = [
   { name: 'image-ack-text', description: '自定义图片回执（留空恢复默认）' },
   { name: 'source', description: '微信来源标识与回复约定', values: ON_OFF },
   { name: 'bidirectional', description: '桌面与微信双向同步', values: ON_OFF },
+  { name: 'summary', description: '微信完成摘要', values: ON_OFF },
   { name: 'auto-start', description: '新会话自动启动桥接', values: ON_OFF },
   { name: 'handoff', description: '其他会话持锁时的接管方式', values: ['ask', 'auto'] },
   { name: 'remote-tools', description: '微信端 /tools 修改本机权限', values: ON_OFF },

@@ -23,6 +23,7 @@ export async function showConfigMenu(ctx: ExtensionCommandContext, deps: ConfigM
       { id: 'back', label: '返回常用设置' },
     ] : [
       { id: 'ack', label: `收件回执通知：${enabled(config.sendAck !== false)} · 收到文字或图片时发送确认` },
+      { id: 'summary', label: `完成摘要：${enabled(config.completionSummary === true)} · Pi 本轮结束后发送一条摘要` },
       { id: 'ack-text', label: '文字回执内容：自定义 / 恢复默认' },
       { id: 'image-ack-text', label: '图片回执内容：自定义 / 恢复默认' },
       { id: 'bidirectional', label: `双向同步：${enabled(config.bidirectionalSync === true)} · 电脑输入和 AI 回复也转发到微信` },
@@ -83,6 +84,7 @@ export async function showConfigMenu(ctx: ExtensionCommandContext, deps: ConfigM
     const descriptions: Record<string, string> = {
       ack: '收件回执通知：收到文字或图片时发送确认；关闭不影响 AI 回复、文件保存结果和错误提示',
       bidirectional: '双向同步：把电脑端的输入和 AI 回复转发给微信；关闭后只有微信发起的任务回复才发回微信',
+      summary: '完成摘要：开启后等 Pi 结束本轮处理再发摘要，关闭时逐条发送 AI 回复',
       'auto-start': '自动启动微信桥接：打开 pi 会话时尝试连接微信；其他会话持锁且支持交接时，按「持锁接管方式」询问或直接交接',
       handoff: '持锁接管方式：询问 = 遇到其他会话持锁时弹窗确认；自动 = 直接请求旧会话交接，不再询问（仅对支持协作交接的 0.4.4+ 会话生效；无界面模式始终不自动接管）',
       source: '微信消息标识与排版：微信消息加来源标记（默认 [微信]），引导 AI 用短段落和文字提问，并拦截已配置的本机提问工具',

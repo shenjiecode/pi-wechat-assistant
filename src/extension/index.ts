@@ -32,7 +32,8 @@ import type { IncomingMessage } from '../wechat/types.js'
 import { WechatPrompt } from '../messaging/wechat-prompt.js'
 import { appendWechatSystemRules, WECHAT_SOURCE_TAG } from '../messaging/wechat-source.js'
 import { formatWechatStatus } from './status.js'
-import { ModelFailureNotice, hasSettledEvents, failureNoticeMode, summarizeModelError, type FailureNoticeMode } from './model-failure.js'
+import { ModelFailureNotice, hasSettledEvents, failureNoticeMode, summarizeModelError } from './model-failure.js'
+import { CompletionSummary, SUMMARY_REPLY_RULE } from './completion-summary.js'
 
 const WECHAT_TOOL_NAMES = ['send_file_to_wechat', 'send_image_to_wechat']
 const WECHAT_TOOL_STATUS_TYPE = 'wechat-assistant-tool-status'
@@ -70,6 +71,8 @@ class TurnContext {
 
 export default function wechatAssistant(pi: ExtensionAPI) {
   const modelFailure = new ModelFailureNotice()
+  const completionSummary = new CompletionSummary()
+  const supportsCompletionSummary = (ctx: Ctx) => failureNoticeMode(ctx, boundarySubscription) === 'boundary'
   let client: WeixinClient | null = null
   let outbox: ReplyOutbox | null = null
   let running = false
@@ -233,6 +236,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     running = false
     stopBridgeWatch()
     modelFailure.reset()
+    completionSummary.reset()
     wechatPrompt.clear()
     if (toolsRegistered) {
       registerWechatTools(false)
@@ -307,12 +311,16 @@ export default function wechatAssistant(pi: ExtensionAPI) {
 
   const outboxStatus = () => outbox?.status ?? { pending: 0, uncertain: 0 }
 
-  async function sendReply(userId: string, text: string, ctx: Ctx | null = latestCtx) {
+  function sendReply(userId: string, text: string, ctx: Ctx | null = latestCtx) {
+    return deliverReply(userId, splitAndFilterMarkdown(text), ctx)
+  }
+
+  async function deliverReply(userId: string, chunks: string[], ctx: Ctx | null) {
     const activeClient = client
     const activeOutbox = outbox
     if (!running || !activeClient || !activeOutbox || userId !== activeClient.userId) return 'stopped'
     try {
-      const result = await activeOutbox.deliver(splitAndFilterMarkdown(text), {
+      const result = await activeOutbox.deliver(chunks, {
         cwd: ctx?.cwd ?? '', sessionId: ctx?.sessionManager?.getSessionId(),
       }, replyTransport(activeClient))
       if (result === 'queued' && activeOutbox.status.pending === 1) {
@@ -431,6 +439,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
 
   const commandDeps: CommandDeps = {
     pi,
+    supportsCompletionSummary,
     prepareBridge,
     preflightBridge,
     wechatPrompt,
@@ -562,9 +571,15 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     if (previous && previous !== request) void client?.stopTyping(previous.userId).catch(() => {})
     turn.wechatConversationActive = request !== null
     turn.targetUser = request?.userId ?? (running ? client?.userId ?? null : null)
+    const config = getConfigCache()
+    const useSummary = turn.targetUser !== null && (turn.wechatConversationActive || config.bidirectionalSync === true)
+      && config.completionSummary === true && supportsCompletionSummary(ctx)
+    completionSummary.beginRequest(useSummary
+      ? request?.text || request?.preview || extractTextFromMessageContent(event.message.content) || '本轮请求'
+      : null, request !== null)
     updateStatusBar()
     setImmediate(() => void queue.drain())
-    if (!request && running && client && getConfigCache().bidirectionalSync === true) {
+    if (!request && running && client && config.bidirectionalSync === true) {
       const content = event.message.content
       const text = extractTextFromMessageContent(content)
       const imageCount = Array.isArray(content) ? content.filter(part => part.type === 'image').length : 0
@@ -594,6 +609,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     latestCtx = ctx
     agentPreparing = true
     modelFailure.reset()
+    completionSummary.reset()
     turn.wechatConversationActive = false
     turn.targetUser = null
     queue.activeRequest = null
@@ -602,10 +618,13 @@ export default function wechatAssistant(pi: ExtensionAPI) {
       const remaining = active.filter(name => !WECHAT_TOOL_NAMES.includes(name))
       if (remaining.length !== active.length) pi.setActiveTools(remaining)
     }
-    const source = getConfigCache().messageSourceTag
+    const config = getConfigCache()
+    const source = config.messageSourceTag
     if (!running || source?.enabled === false || wechatPrompt.rules === null) return
+    const rules = config.completionSummary === true && supportsCompletionSummary(ctx)
+      ? wechatPrompt.rules + '\n' + SUMMARY_REPLY_RULE : wechatPrompt.rules
     return {
-      systemPrompt: appendWechatSystemRules(event.systemPrompt, wechatPrompt.rules, source?.wechatTag?.trim() || WECHAT_SOURCE_TAG),
+      systemPrompt: appendWechatSystemRules(event.systemPrompt, rules, source?.wechatTag?.trim() || WECHAT_SOURCE_TAG),
     }
   })
 
@@ -637,6 +656,7 @@ export default function wechatAssistant(pi: ExtensionAPI) {
 
     // Retry loops have no new user message; retain its source and question guard.
     modelFailure.startAttempt()
+    completionSummary.startAttempt()
     setImmediate(() => void queue.drain())
   })
 
@@ -645,12 +665,14 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     if (event.message.role !== 'assistant') return
     if (!running || !client) return
     modelFailure.observe(event.message, ctx.signal)
+    const syncReply = turn.wechatConversationActive || getConfigCache().bidirectionalSync === true
+    completionSummary.observe(event.message, syncReply, ctx.signal)
     if (event.message.stopReason === 'error' || event.message.stopReason === 'aborted') {
       // Never forward failed partial output: retries may replay it.
-      if (!hasSettledEvents(ctx) && event.message.stopReason === 'error') await sendModelFailure('attempt')
+      if (!hasSettledEvents(ctx) && event.message.stopReason === 'error') await sendAttemptFailure()
       return
     }
-    if (!turn.wechatConversationActive && getConfigCache().bidirectionalSync !== true) return
+    if (completionSummary.active || !syncReply) return
 
     const targetUserId = turn.targetUser ?? client.userId
     if (!targetUserId) {
@@ -699,10 +721,10 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     setImmediate(() => void queue.drain())
   })
 
-  async function sendModelFailure(mode: FailureNoticeMode, aborted = false): Promise<void> {
+  async function sendAttemptFailure(): Promise<void> {
     if (!running || !client || !turn.targetUser) return
     if (!turn.wechatConversationActive && getConfigCache().bidirectionalSync !== true) return
-    const notice = modelFailure.take(mode, aborted)
+    const notice = modelFailure.take('attempt')
     if (!notice) return
     try { await sendReply(turn.targetUser, notice) }
     catch (error) { log(`模型错误通知发送失败: ${debugError(error)}`) }
@@ -714,16 +736,31 @@ export default function wechatAssistant(pi: ExtensionAPI) {
     name: 'agent_before_settle' | 'agent_settled',
     handler: (event: { outcome?: string; aborted?: boolean }, ctx: ExtensionContext) => void | Promise<void>,
   ) => unknown
-  const boundarySubscription = onSettlement('agent_before_settle', event => { modelFailure.beforeSettle(event.outcome ?? '') })
+  const boundarySubscription = onSettlement('agent_before_settle', event => {
+    modelFailure.beforeSettle(event.outcome ?? '')
+    completionSummary.beforeSettle(event.outcome ?? '')
+  })
   onSettlement('agent_settled', async (event, ctx) => {
     queue.clearPreparedRun()
     latestCtx = ctx
-    const sending = sendModelFailure(failureNoticeMode(ctx, boundarySubscription), event.aborted === true)
+    const syncDesktop = getConfigCache().bidirectionalSync === true
+    const aborted = event.aborted === true
+    const failure = turn.targetUser && (turn.wechatConversationActive || syncDesktop)
+      ? modelFailure.take(failureNoticeMode(ctx, boundarySubscription), aborted) : null
+    const summarized = completionSummary.active
+    const summary = completionSummary.take(failure, aborted, syncDesktop)
+    const chunks = summary ? [summary] : []
+    if (!summarized && failure) chunks.push(...splitAndFilterMarkdown(failure))
+    const target = turn.targetUser ?? client?.userId
+    // Claim this delivery before awaiting I/O. A new request may start during the send.
     modelFailure.reset()
     queue.activeRequest = null
     turn.wechatConversationActive = false
     turn.targetUser = null
-    await sending
+    if (target && chunks.length) {
+      try { await deliverReply(target, chunks, ctx) }
+      catch (error) { log(`微信收尾通知发送失败: ${debugError(error)}`) }
+    }
   })
 
   // 会话关闭 → 清理 + 落盘 context tokens

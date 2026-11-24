@@ -29,6 +29,7 @@ A WeChat extension for [pi](https://github.com/earendil-works/pi): send tasks, r
 - **Text, images, and files:** send tasks and images to pi; receive replies and project files in WeChat.
 - **Readable replies:** full links, code chunks, and customizable reply rules and receipt notifications.
 - **Optional desktop sync:** mirror new desktop input and AI replies, without replaying history.
+- **Completion summaries** are off by default. Use `/wechat config summary on` to receive one short AI reply when Pi finishes a run. [Settings](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/settings.md#completion-summaries)
 - **Session handoff:** move the active WeChat connection between pi sessions.
 - **Deferred text replies:** AI text rejected by WeChat is saved and retried after your next WeChat message, including after a restart. See [scope and limits](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.md#the-task-finished-but-its-result-never-arrived).
 

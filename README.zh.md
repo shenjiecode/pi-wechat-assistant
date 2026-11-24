@@ -29,6 +29,7 @@
 - **文字、图片和文件**：向 pi 发送任务和图片，在微信接收回复和项目文件。
 - **适合微信阅读**：完整链接、代码分块，回复规则和收件回执均可自定义。
 - **可选桌面同步**：同步新的电脑端输入和 AI 回复，不重发历史记录。
+- **完成摘要**默认关闭。执行 `/wechat config summary on` 后，Pi 本轮结束时，微信收到一条简短的 AI 回复。[设置说明](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/settings.zh.md#完成摘要)
 - **会话交接**：在不同 pi 会话间切换当前微信连接。
 - **失败文本补发**：被微信拒收的 AI 文本回复会暂存；从微信再发一条消息后自动尝试补发，重启后仍可恢复。详见[范围与限制](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.zh.md#长任务做完了但结果没有收到)。
 

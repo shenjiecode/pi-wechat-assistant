@@ -439,6 +439,190 @@ describe('bridge bidirectional sync and lifecycle', () => {
   }
   const contextRejection = () => new ApiError('prepare failed', { status: 200, code: -2 })
 
+  describe('opt-in completion summaries', () => {
+    beforeEach(() => { state.config.sendAck = false })
+
+    async function startSummary() {
+      modern()
+      await command('config summary on')
+      await command('start')
+      await wechatInput('检查构建', true)
+    }
+
+    it('defaults to incremental replies and persists only explicit menu or command selections', async () => {
+      modern()
+      await command('config show')
+      expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.stringContaining('完成摘要: 已关闭（默认）'), 'info')
+      expect(state.config.completionSummary).toBeUndefined()
+      ctx.ui.select.mockResolvedValueOnce('完成摘要：关闭 · Pi 本轮结束后发送一条摘要').mockResolvedValueOnce('开启')
+      await command('config')
+      expect(state.config.completionSummary).toBe(true)
+      await command('config summary invalid')
+      expect(ctx.ui.notify).toHaveBeenLastCalledWith('用法: /wechat config summary on|off', 'error')
+      expect(state.config.completionSummary).toBe(true)
+      expect(commands.wechat.getArgumentCompletions('config summary ').map((item: any) => item.value))
+        .toEqual(['config summary on', 'config summary off'])
+      await command('config summary off')
+      await command('start')
+      await wechatInput('hello', true)
+      await reply('progress')
+      await reply('done')
+      await settle('completed')
+      expect(outgoing()).toEqual([['bound-user', 'progress'], ['bound-user', 'done']])
+    })
+
+    it('waits through tool text, errors and a requested continuation before sending one final result', async () => {
+      await startSummary()
+      await handlers.message_end({ message: { role: 'assistant', stopReason: 'toolUse',
+        content: [{ type: 'text', text: 'running the build' }, { type: 'toolCall', name: 'bash' }] } }, ctx)
+      await failure('temporary error', 'partial private reasoning')
+      await handlers.agent_end({ messages: [{ role: 'assistant', content: 'historic reply' }] }, ctx)
+      await handlers.agent_start({}, ctx)
+      await reply('first attempt')
+      await handlers.agent_before_settle({ outcome: 'completed' }, ctx)
+      expect(outgoing()).toEqual([])
+      await handlers.agent_start({}, ctx)
+      await reply('摘要：构建通过，12 项测试通过。\n\n' + '完整构建日志\n'.repeat(80))
+      await settle('completed')
+      await handlers.agent_settled({}, ctx)
+      expect(outgoing()).toEqual([['bound-user', '【完成摘要】\n任务：检查构建\n构建通过，12 项测试通过。']])
+    })
+
+    it('adds the summary instruction only to the opt-in WeChat rules', async () => {
+      modern()
+      await command('start')
+      const prepare = () => handlers.before_agent_start({ systemPrompt: 'base', prompt: 'work' }, ctx)
+      expect((await prepare()).systemPrompt).not.toContain('需要你回复：')
+      await command('config summary on')
+      expect((await prepare()).systemPrompt).toContain('需要你回复：')
+      state.config.messageSourceTag = { enabled: false }
+      expect(await prepare()).toBeUndefined()
+    })
+
+    it('keeps a question and its options in the same WeChat message, including a long reply', async () => {
+      await startSummary()
+      await reply('需要你回复：选哪台机器？\n\n1. 测试机\n2. 生产机')
+      await settle('completed')
+      expect(outgoing()).toEqual([['bound-user', '【需要你回复】\n任务：检查构建\n选哪台机器？\n\n1. 测试机\n2. 生产机']])
+      state.client.sendText.mockClear()
+      await wechatInput('检查长回复', true)
+      await reply('结果在这里。\n\n' + '🧑🏽‍💻'.repeat(180) + '\n下一步请回复 1 或 2。')
+      await settle('completed')
+      expect(outgoing()).toHaveLength(1)
+      const body = outgoing()[0][1]
+      expect(body.length).toBeLessThan(800)
+      expect(body).toContain('结果在这里')
+      expect(body).toContain('请回复 1 或 2。')
+      expect(body).toContain('完整回复见 Pi')
+      expect(body.replaceAll('🧑🏽‍💻', '')).not.toMatch(/[🧑🏽💻\u200d]/u)
+    })
+
+    it.each(['任务完成', '任务失败'])('reports an explicit task result %s independently of Pi finishing normally', async label => {
+      await startSummary()
+      await reply(label + '：构建结果见报告。\n\n完整日志在这里。')
+      await settle('completed')
+      expect(outgoing()).toEqual([['bound-user', '【' + label + '】\n任务：检查构建\n构建结果见报告。']])
+    })
+
+    it('reports the final failure once and discards partial, cancelled and tool-only output', async () => {
+      await startSummary()
+      await reply('early progress')
+      await failure('quota exceeded', 'unfinished response')
+      await settle('error')
+      await settle('error')
+      expect(outgoing()).toEqual([['bound-user', expect.stringContaining('【本轮失败】\n任务：检查构建')]])
+      expect(outgoing()[0][1]).toContain('quota exceeded')
+      expect(outgoing()[0][1]).not.toContain('unfinished response')
+      state.client.sendText.mockClear()
+      await wechatInput('cancel me', true)
+      await reply('old progress')
+      await handlers.agent_settled({ aborted: true }, ctx)
+      expect(outgoing()).toEqual([['bound-user', '【本轮已取消】\n任务：cancel me\nPi 已停止本轮处理。']])
+      state.client.sendText.mockClear()
+      await wechatInput('no final text', true)
+      await reply('will try now')
+      await handlers.message_end({ message: { role: 'assistant', stopReason: 'toolUse', content: 'intermediate' } }, ctx)
+      await settle('completed')
+      expect(outgoing()).toEqual([['bound-user', expect.stringContaining('本轮没有最终文字回复')]])
+    })
+
+    it('preserves the current request mode, respects private follow-ups, and drops drafts on stop', async () => {
+      await startSummary()
+      await reply('微信结果')
+      await command('config summary off')
+      await handlers.message_start({ message: { role: 'user', content: 'private desktop question' } }, ctx)
+      await reply('private desktop answer')
+      await settle('completed')
+      expect(outgoing()).toEqual([['bound-user', '【回复摘要】\n任务：检查构建\n微信结果']])
+      state.client.sendText.mockClear()
+      await wechatInput('second request', true)
+      await command('config summary on')
+      await reply('still incremental')
+      await settle('completed')
+      expect(outgoing()).toEqual([['bound-user', 'still incremental']])
+      state.client.sendText.mockClear()
+      await wechatInput('third request', true)
+      await reply('never send after stop')
+      await command('stop')
+      await command('start')
+      await settle('completed')
+      expect(outgoing()).toEqual([])
+    })
+
+    it('queues only the rejected summary and replays it once on new authorized activity', async () => {
+      await startSummary()
+      await reply('opening the project')
+      await reply('tests passed')
+      state.client.sendText.mockRejectedValueOnce(contextRejection())
+      await settle('completed')
+      const summary = '【完成摘要】\n任务：检查构建\ntests passed'
+      expect(outgoing()).toEqual([['bound-user', summary]])
+      state.client.sendText.mockClear()
+      await activity('/status')
+      expect(outgoing().map(([, text]) => text)).toEqual([
+        expect.stringContaining('【补发】'), summary, expect.stringContaining('待补发回复: 0'),
+      ])
+      state.client.sendText.mockClear()
+      await activity('/status')
+      expect(outgoing()).toEqual([['bound-user', expect.stringContaining('待补发回复: 0')]])
+    })
+
+    it('summarizes opted-in desktop replies and respects withdrawal of desktop sync', async () => {
+      modern()
+      state.config = { completionSummary: true, bidirectionalSync: true }
+      await command('start')
+      await startRun('desktop task')
+      state.client.sendText.mockClear()
+      await reply('public answer')
+      await settle('completed')
+      expect(outgoing()).toEqual([['bound-user', '【完成摘要】\n任务：desktop task\npublic answer']])
+      await startRun('next task')
+      state.client.sendText.mockClear()
+      await reply('working')
+      await command('config bidirectional off')
+      await reply('private result')
+      await command('config bidirectional on')
+      await settle('completed')
+      expect(outgoing()).toEqual([])
+    })
+
+    it.each([false, true])('uses realtime when the host lacks a reliable outcome, settledOnly=%s', async settledOnly => {
+      if (settledOnly) {
+        await handlers.session_shutdown({}, ctx)
+        installExtension(false)
+        modern()
+        await handlers.session_start({}, ctx)
+      }
+      await command('config summary on')
+      expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.stringContaining('使用实时回复'), 'info')
+      await command('start')
+      await wechatInput('legacy', true)
+      await reply('immediate')
+      if (settledOnly) await handlers.agent_settled({}, ctx)
+      expect(outgoing()).toEqual([['bound-user', 'immediate']])
+    })
+  })
+
   describe('pending text replies (#53)', () => {
     beforeEach(() => { state.config.sendAck = false })
 

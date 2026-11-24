@@ -5,6 +5,7 @@ import { formatError } from '../shared/utils.js'
 import { WECHAT_SOURCE_TAG } from '../messaging/wechat-source.js'
 import type { WechatPrompt } from '../messaging/wechat-prompt.js'
 import { showConfigMenu } from './config-menu.js'
+import { completionSummarySetting } from './completion-summary.js'
 
 type Ctx = ExtensionContext | ExtensionCommandContext
 interface ConfigCommandDeps {
@@ -12,6 +13,7 @@ interface ConfigCommandDeps {
   notify: (message: string, level: 'info' | 'warning' | 'error') => void
   updateStatusBar: () => void
   isRunning: () => boolean
+  supportsCompletionSummary: (ctx: Ctx) => boolean
   wechatPrompt: WechatPrompt
 }
 const getImageBatchWaitMs = () => resolveImageBatchWaitMs(getConfigCache())
@@ -44,12 +46,13 @@ async function applyConfigCommand(args: string, ctx: ExtensionCommandContext, de
       `自动启动: ${config.autoStart ? '已开启' : '已关闭'}`,
       `持锁接管: ${config.handoff === 'auto' ? '自动（直接请求交接）' : '询问（默认）'}`,
       `双向同步: ${config.bidirectionalSync === true ? '已开启' : '已关闭（默认）'}`,
+      '完成摘要: ' + completionSummarySetting(config.completionSummary === true, deps.supportsCompletionSummary(ctx)),
       `微信 /tools: ${config.allowRemoteTools ? '已开启' : '已关闭（/wechat remotetools on 开启）'}`,
       `微信来源与回复约定: ${config.messageSourceTag?.enabled === false ? '已关闭' : '已开启（默认）'}`,
       `来源标识: ${config.messageSourceTag?.wechatTag?.trim() || WECHAT_SOURCE_TAG}`,
       `图片合并等待: ${getImageBatchWaitMs()}ms`,
       `图片上限: ${Math.round(getImageMaxBytes() / 1024 / 1024)}MB`,
-      '', '用法:', '/wechat config ack on|off', '/wechat config ack-text [内容，留空恢复默认]', '/wechat config image-ack-text [内容，留空恢复默认]', '/wechat config source on|off', '/wechat config bidirectional on|off', '/wechat config handoff ask|auto', '/wechat config image-wait 8000', '/wechat config image-max 50',
+      '', '用法:', '/wechat config ack on|off', '/wechat config ack-text [内容，留空恢复默认]', '/wechat config image-ack-text [内容，留空恢复默认]', '/wechat config source on|off', '/wechat config bidirectional on|off', '/wechat config summary on|off', '/wechat config handoff ask|auto', '/wechat config image-wait 8000', '/wechat config image-max 50',
     ].join('\n'), 'info')
     return
   }
@@ -67,6 +70,13 @@ async function applyConfigCommand(args: string, ctx: ExtensionCommandContext, de
     else delete config[field]
     await saveConfig(config)
     deps.notify(text ? '回执内容已保存' : '回执内容已恢复默认', 'info')
+    return
+  }
+  if (key === 'summary') {
+    if (value !== 'on' && value !== 'off') { deps.notify('用法: /wechat config summary on|off', 'error'); return }
+    config.completionSummary = value === 'on'
+    await saveConfig(config)
+    deps.notify('完成摘要' + completionSummarySetting(config.completionSummary, deps.supportsCompletionSummary(ctx)) + '。下一轮请求生效。', 'info')
     return
   }
   if (key === 'source') {
