@@ -76,7 +76,7 @@
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^1.4.0",
+    "@earendil-works/pi-coding-agent": "^1.6.0",
     "@sinclair/typebox": "^0.34.49",
     "@types/node": "^22.10.5",
     "@types/qrcode-terminal": "^0.12.2",
@@ -85,10 +85,5 @@
   },
   "dependencies": {
     "qrcode-terminal": "^0.12.0"
-  },
-  "overrides": {
-    "@earendil-works/pi-coding-agent": {
-      "undici": "8.12.3"
-    }
   }
 }
