@@ -14,6 +14,8 @@ export interface BridgeConfig {
   handoff?: 'ask' | 'auto'
   /** 默认同步 TUI 输入和 AI 回复到微信；关闭后仅转发微信任务回复。 */
   bidirectionalSync?: boolean
+  /** Send one completion summary after Pi settles. Unset keeps incremental replies. */
+  completionSummary?: boolean
   /** 是否允许微信端 /tools 命令修改本机工具权限（安全考虑，默认关闭） */
   allowRemoteTools?: boolean
   /** 来源标识与微信回复约定共用此开关，默认开启。 */

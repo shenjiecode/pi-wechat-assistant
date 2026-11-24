@@ -23,6 +23,7 @@ import { describeBridgeLock, bridgeStartBlocker, bridgeLockMetadata, type Bridge
 import { BridgeHandoffError, type BridgeLockResult } from '../bridge/bridge-ownership.js'
 import { cmdConfig, cmdAutostart, cmdRemoteTools, cmdPrompt } from './config-commands.js'
 import { getWechatArgumentCompletions } from './command-completion.js'
+import { completionSummarySetting } from './completion-summary.js'
 import { loadConfig } from '../bridge/config.js'
 import { resolveImageBatchWaitMs, resolveImageMaxBytes } from '../bridge/config-values.js'
 import { clearContextTokens, clearTransportState } from '../bridge/transport-state.js'
@@ -38,6 +39,7 @@ export interface CommandDeps {
   setClient: (c: WeixinClient | null) => void
   loadClient: () => Promise<WeixinClient | null>
   isRunning: () => boolean
+  supportsCompletionSummary: (ctx: Ctx) => boolean
   setRunning: (v: boolean) => void
   requestHandoff: typeof requestHandoff
   setPollAbort: (c: AbortController | null) => void
@@ -272,6 +274,7 @@ async function cmdStatus(_args: string, ctx: Ctx, deps: CommandDeps): Promise<vo
     `上线状态通知: ${describeApiResult(activeClient?.lastLifecycle?.start, 'API 返回成功（不代表客户端已更新）')}`,
     `下线状态通知: ${describeApiResult(activeClient?.lastLifecycle?.stop, 'API 返回成功（不代表客户端已更新）')}`,
     `双向同步: ${config.bidirectionalSync === true ? '开启' : '关闭（仅微信任务回复）'}`,
+    '完成摘要: ' + completionSummarySetting(config.completionSummary === true, deps.supportsCompletionSummary(ctx)),
     `账号 ID: ${activeClient?.accountId ?? '-'}`,
     `用户 ID: ${activeClient?.userId ?? '-'}`,
     `排队消息: ${deps.queue.pending}`,

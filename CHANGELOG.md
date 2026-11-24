@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### English
+
+- Add opt-in WeChat completion summaries through `/wechat config summary on|off`. Summaries wait for Pi’s final settlement and use the existing reply outbox (#53).
+
+### 中文
+
+- 新增默认关闭的微信完成摘要，可用 `/wechat config summary on|off` 切换。Pi 本轮收尾后发送一条摘要，被拒收时沿用待发箱补发（#53）。
+
 ## [0.6.7] - 2026-11-19
 
 ### English

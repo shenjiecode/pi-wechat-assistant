@@ -3,7 +3,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createAgentSessionFromServices, createAgentSessionRuntime, createAgentSessionServices,
-  ModelRuntime, SessionManager, SettingsManager,
+  ModelRuntime, SessionManager, SettingsManager, type ExtensionFactory,
 } from '@earendil-works/pi-coding-agent'
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai'
 
@@ -63,8 +63,8 @@ const assistant = (text: string) => ({
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
 })
 
-// Real Pi session replacement and extension dispatch; only WeChat transport is mocked.
-describe('remote /new with the Pi SDK', () => {
+// Real Pi sessions and extension dispatch, with scripted model output and WeChat transport.
+describe('WeChat bridge with the Pi SDK', () => {
   let runtime: Awaited<ReturnType<typeof createAgentSessionRuntime>> | undefined
   let temporary = ''
   afterEach(async () => {
@@ -73,13 +73,17 @@ describe('remote /new with the Pi SDK', () => {
     if (temporary) await rm(temporary, { recursive: true, force: true })
   })
 
-  it.each([false, true])('preserves history, creates empty context and keeps messaging with autoStart=%s', async autoStart => {
+  async function startRuntime(autoStart: boolean, options: {
+    completionSummary?: boolean
+    extraExtension?: ExtensionFactory
+    reply?: (request: number) => string
+  } = {}) {
     const cache = path.join(process.cwd(), 'node_modules', '.cache')
     await mkdir(cache, { recursive: true })
     temporary = await mkdtemp(path.join(cache, 'wechat-new-sdk-'))
     state.directory = temporary
     state.clients = []; state.owner = null; state.cancelNew = false
-    state.config = { autoStart, sendAck: false, messageSourceTag: { enabled: false } }
+    state.config = { autoStart, sendAck: false, completionSummary: options.completionSummary, messageSourceTag: { enabled: false } }
     const modelRuntime = await ModelRuntime.create({
       authPath: path.join(temporary, 'auth.json'), modelsPath: null,
       modelsStorePath: path.join(temporary, 'models.json'), refreshOnCreate: false, allowModelNetwork: false,
@@ -99,7 +103,7 @@ describe('remote /new with the Pi SDK', () => {
           noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
           extensionFactories: [extension, pi => {
             pi.on('session_before_switch', () => state.cancelNew ? { cancel: true } : undefined)
-          }],
+          }, ...(options.extraExtension ? [options.extraExtension] : [])],
           systemPrompt: 'Disposable integration instructions.',
           agentsFilesOverride: () => ({ agentsFiles: [{
             path: path.join(temporary, 'AGENTS.md'), content: 'Disposable project instructions.',
@@ -112,7 +116,7 @@ describe('remote /new with the Pi SDK', () => {
       result.session.agent.streamFunction = (_model, context) => {
         modelRequests.push(context)
         const stream = createAssistantMessageEventStream()
-        stream.push({ type: 'done', reason: 'stop', message: assistant('fresh reply') })
+        stream.push({ type: 'done', reason: 'stop', message: assistant(options.reply?.(modelRequests.length) ?? 'fresh reply') })
         return stream
       }
       return { ...result, services, diagnostics: [] }
@@ -129,6 +133,37 @@ describe('remote /new with the Pi SDK', () => {
     runtime.setRebindSession(bind)
     await bind(runtime.session)
     await runtime.session.prompt('/wechat start')
+    return { runtime, modelRequests, errors, oldFile }
+  }
+
+  it('sends a single summary after another extension requests one final continuation', async () => {
+    const boundaries: string[][] = []
+    const { runtime, modelRequests, errors } = await startRuntime(false, {
+      completionSummary: true,
+      reply: request => request === 1 ? 'preliminary answer' : 'verified final answer',
+      extraExtension: pi => {
+        pi.on('agent_before_settle', () => {
+          boundaries.push([...replies()])
+          if (boundaries.length === 1) return {
+            entries: [{ type: 'custom_message', customType: 'final-check', content: 'Verify the result once.', display: false }],
+            continue: true,
+          }
+        })
+      },
+    })
+    receiver().deliver([message('check the build')])
+    const expected = '【完成摘要】\n任务：check the build\nverified final answer'
+    await vi.waitFor(() => expect(replies()).toContain(expected), { timeout: 10000 })
+    await runtime.session.waitForIdle()
+    expect(modelRequests).toHaveLength(2)
+    expect(boundaries).toEqual([[], []])
+    expect(replies()).toEqual([expected])
+    expect(runtime.session.messages).toContainEqual(expect.objectContaining({ content: [{ type: 'text', text: 'preliminary answer' }] }))
+    expect(errors).toEqual([])
+  }, 30000)
+
+  it.each([false, true])('preserves history, creates empty context and keeps messaging with autoStart=%s', async autoStart => {
+    const { runtime, modelRequests, errors, oldFile } = await startRuntime(autoStart)
     const oldHistory = await readFile(oldFile, 'utf8')
     const oldSession = runtime.session
     const oldId = oldSession.sessionId
