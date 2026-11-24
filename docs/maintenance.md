@@ -17,7 +17,7 @@ This guide is for the maintainer or someone preparing a release. For development
 
 CI runs the test suite on Linux and Windows with Node 20.19.0, 22 and 24. The **CI success** job requires the entire matrix, minimum-runtime jobs and production audit to succeed; skipped or failed dependencies do not count as success. Configure this aggregate as a required check only after it has run successfully on GitHub. Adding a workflow file does not update repository branch-protection settings.
 
-The real Pi SDK session-replacement tests require Node >=22.19, matching the development Pi 1.5 host. They run in the Node 22/24 CI jobs. On older Node versions, Vitest explicitly reports their exclusion and still runs the extension tests; the separate Node 20.3 runtime smoke remains required. SDK tests use simulated WeChat transport and do not establish real-account delivery.
+The real Pi SDK integration tests require Node >=22.19, matching the development Pi 1.6 host. They run in the Node 22/24 CI jobs with simulated WeChat transport. The older Node jobs exercise the extension tests and the separate Node 20.3 runtime smoke check.
 
 Local commands, from the checkout:
 
@@ -73,7 +73,7 @@ Dependabot groups npm and GitHub Actions version updates into one weekly cross-e
 
 When an audit fails, inspect the affected dependency path, advisory and fixed versions. Update the lockfile, rerun checks, and record what remains. Do not use `npm audit fix --force` merely to make a number disappear. Do not install unsupported development tooling to silence an alert while still claiming the older CI Node matrix works.
 
-The checkout temporarily overrides the development Pi host's `undici` dependency to `8.12.3`: Pi `1.4.0` pins `8.10.2`, which is affected by advisories covering versions before `8.12.2`. This scoped root-package override repairs the development dependency tree without downgrading Pi or adding a runtime dependency. It does not patch the user's separately installed Pi host, and npm ignores this package's overrides when installing it as a dependency. Reassess and remove the override when an upstream Pi release uses a fixed version; rerun clean installation, both audits, and compatibility checks.
+The lockfile uses Pi `1.6.0` for development. Pi supplies `undici 8.12.4` with the upstream security fixes. After a host update, use `npm ls undici` to check the installed version, run both audits, and check Pi API compatibility. Users update their own Pi installation separately. [Pi 1.6.0 release notes](https://github.com/earendil-works/pi/releases/tag/v1.6.0)
 
 Keep the runtime Node floor separate from development tools and the user's Pi host. New Vitest or Pi releases may raise their own Node requirements. Compatibility samples live in `scripts/check-pi-compat.mjs`; add a representative new host when its API changes.
 
