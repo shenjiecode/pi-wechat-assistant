@@ -10,13 +10,12 @@ beforeEach(() => { files.exists = true; files.size = 1024 })
 describe('extracted sending tools', () => {
   function setup() {
     const tools = new Map<string, any>()
-    let running = true
-    let client = { userId: 'user', sendFile: vi.fn().mockResolvedValue(undefined), sendImage: vi.fn().mockResolvedValue(undefined) }
+    const deps: any = { client: null, running: true, latestCtx: { cwd: process.cwd() } }
+    let client: any = { userId: 'user', sendFile: vi.fn().mockResolvedValue(undefined), sendImage: vi.fn().mockResolvedValue(undefined) }
     const initial = client
-    registerWechatTools({ registerTool: (tool: any) => tools.set(tool.name, tool) } as any, true, {
-      getClient: () => client as any, isRunning: () => running, latestCtx: () => ({ cwd: process.cwd() }) as any,
-    })
-    return { tools, initial, stop: () => { running = false }, replace: (next: typeof client) => { client = next } }
+    deps.client = client
+    registerWechatTools({ registerTool: (tool: any) => tools.set(tool.name, tool) } as any, true, deps)
+    return { tools, initial, stop: () => { deps.running = false }, replace: (next: typeof client) => { client = next; deps.client = next } }
   }
 
   it.each([['send_file_to_wechat', 'filePath', 'sendFile'], ['send_image_to_wechat', 'imagePath', 'sendImage']] as const)('uses current client for retained %s and rechecks stop after the guard', async (name, field, method) => {

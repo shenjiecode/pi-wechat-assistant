@@ -2,13 +2,19 @@ import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-const STATE_DIR = path.join(os.homedir(), '.pi', 'agent', 'wechat-assistant')
-export function getStateDir(): string { return STATE_DIR }
+/**
+ * Resolved on every call so a changed HOME/USERPROFILE (containers, tests)
+ * relocates credentials, locks, config and transport state together.
+ */
+export function getStateDir(): string {
+  return path.join(os.homedir(), '.pi', 'agent', 'wechat-assistant')
+}
 
 export async function ensureStateDir(): Promise<void> {
-  await fs.mkdir(STATE_DIR, { recursive: true, mode: 0o700 })
+  const stateDir = getStateDir()
+  await fs.mkdir(stateDir, { recursive: true, mode: 0o700 })
   // mkdir 的 mode 不会修改已有目录；尽力收紧旧安装的状态目录权限。
-  await fs.chmod(STATE_DIR, 0o700).catch(() => {})
+  await fs.chmod(stateDir, 0o700).catch(() => {})
 }
 
 export async function readJsonFile<T>(filePath: string): Promise<T | null> {

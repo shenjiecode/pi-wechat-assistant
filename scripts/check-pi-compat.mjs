@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const cache = path.join(root, 'node_modules', '.cache', 'pi-wechat-compat', 'packages')
-const versions = ['0.73.1', '0.78.0', '0.84.0', '0.84.4', '0.99.2', '1.1.0', '1.2.0', '1.4.0']
+// The dev host is checked by `npm run typecheck`; this matrix covers the published baseline.
+const versions = ['1.2.0', '1.4.0']
 const selected = process.argv.slice(2)
 if (selected.some(version => !versions.includes(version))) throw new Error('Unsupported compatibility version')
 
@@ -44,42 +45,42 @@ async function getPackage(name, version) {
   return { directory: packageRoot, manifest }
 }
 
+// All imports are type-only. Assert the APIs this extension relies on are
+// strongly typed and present on every supported version.
+const sentinel = `import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, ExtensionEvent } from '@earendil-works/pi-coding-agent'
+type IsAny<T> = 0 extends (1 & T) ? true : false
+const apiIsTyped: IsAny<ExtensionAPI> = false
+const contextIsTyped: IsAny<ExtensionContext> = false
+const commandContextIsTyped: IsAny<ExtensionCommandContext> = false
+const toolsAreTyped: IsAny<Parameters<ExtensionAPI['registerTool']>[0]> = false
+const messagesAreTyped: IsAny<Parameters<ExtensionAPI['sendUserMessage']>[0]> = false
+type SendOptions = NonNullable<Parameters<ExtensionAPI['sendUserMessage']>[1]>
+const expandPromptTemplatesSupported: 'expandPromptTemplates' extends keyof SendOptions ? true : false = true
+type BoundaryEvent = Extract<ExtensionEvent, { type: 'agent_before_settle' }>
+type SettledEvent = Extract<ExtensionEvent, { type: 'agent_settled' }>
+const boundaryPresent: BoundaryEvent extends never ? false : true = true
+const settledPresent: SettledEvent extends never ? false : true = true
+const settledAbortedTyped: IsAny<SettledEvent['aborted']> = false
+declare const pi: ExtensionAPI
+const unsubscribe: () => void = pi.on('agent_settled', event => {
+  const abortedIsTyped: IsAny<typeof event.aborted> = false
+})
+`
+
 await fs.mkdir(cache, { recursive: true })
 for (const version of selected.length ? selected : versions) {
-  const scope = version === '0.73.1' ? '@mariozechner' : '@earendil-works'
-  const host = await getPackage(`${scope}/pi-coding-agent`, version)
+  const host = await getPackage('@earendil-works/pi-coding-agent', version)
   const packages = [host]
   for (const [name, requirement] of Object.entries(host.manifest.dependencies)) {
-    if (name.startsWith(scope + '/pi-')) {
+    if (name.startsWith('@earendil-works/pi-')) {
       packages.push(await getPackage(name, requirement.replace(/^[~^]/, '')))
     }
   }
   const paths = Object.fromEntries(packages.map(pkg => [
     pkg.manifest.name, [path.join(pkg.directory, pkg.manifest.types || 'dist/index.d.ts')],
   ]))
-  // All imports are type-only. Check the same extension against each host's API.
-  paths['@mariozechner/pi-coding-agent'] = paths[`${scope}/pi-coding-agent`]
   const sentinelPath = path.join(cache, `typed-api-${version}.ts`)
-  await fs.writeFile(sentinelPath, `import type { ExtensionAPI, ExtensionContext, ExtensionEvent } from '@mariozechner/pi-coding-agent'
-type IsAny<T> = 0 extends (1 & T) ? true : false
-const apiIsTyped: IsAny<ExtensionAPI> = false
-const contextIsTyped: IsAny<ExtensionContext> = false
-const toolsAreTyped: IsAny<Parameters<ExtensionAPI['registerTool']>[0]> = false
-const messagesAreTyped: IsAny<Parameters<ExtensionAPI['sendUserMessage']>[0]> = false
-type HasSettledEvent = Extract<ExtensionEvent, { type: 'agent_settled' }> extends never ? false : true
-type HasProjectTrust = 'isProjectTrusted' extends keyof ExtensionContext ? true : false
-const settlementCapabilityMatches: HasProjectTrust extends HasSettledEvent ? true : false = true
-type HasBoundaryEvent = Extract<ExtensionEvent, { type: 'agent_before_settle' }> extends never ? false : true
-// Check the shared registration return type through an event available on every host.
-declare const pi: ExtensionAPI
-const registration = pi.on('agent_start', () => {})
-type HasUnsubscribe = typeof registration extends (...args: any[]) => any ? true : false
-type SupportsCommandDispatch = 'expandPromptTemplates' extends keyof NonNullable<Parameters<ExtensionAPI['sendUserMessage']>[1]> ? true : false
-const newSessionDispatchMatches: HasUnsubscribe extends true ? SupportsCommandDispatch : true = true
-const boundaryCapabilityMatches: HasUnsubscribe extends HasBoundaryEvent ? true : false = true
-const expectedSettled: HasSettledEvent = ${!['0.73.1', '0.78.0'].includes(version)}
-const expectedBoundary: HasBoundaryEvent = ${!['0.73.1', '0.78.0', '0.84.0', '0.84.4'].includes(version)}
-`)
+  await fs.writeFile(sentinelPath, sentinel)
   const configPath = path.join(cache, `tsconfig-${version}.json`)
   await fs.writeFile(configPath, JSON.stringify({
     extends: path.join(root, 'tsconfig.json'),

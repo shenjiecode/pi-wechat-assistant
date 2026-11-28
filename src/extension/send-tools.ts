@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from '@mariozechner/pi-coding-agent'
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { existsSync, statSync } from 'node:fs'
 import * as path from 'node:path'
 import { Type } from '@sinclair/typebox'
@@ -7,12 +7,12 @@ import { getBridgeLockState } from '../bridge/auth.js'
 import { describeBridgeLock } from '../bridge/bridge-lock.js'
 import { ok, fail, formatError } from '../shared/utils.js'
 import { debugLog, debugError } from '../shared/logger.js'
+import type { Ctx } from './runtime.js'
 
-type Ctx = ExtensionContext | ExtensionCommandContext
 interface SendToolDeps {
-  getClient: () => WeixinClient | null
-  isRunning: () => boolean
-  latestCtx: () => Ctx | null
+  client: WeixinClient | null
+  running: boolean
+  latestCtx: Ctx | null
 }
 
 function isPathInCwd(targetPath: string, cwd: string): boolean {
@@ -41,14 +41,12 @@ export async function stoppedBridgeReason(): Promise<string> {
 }
 
 async function guardSendToWechat(
-  client: WeixinClient | null,
-  running: boolean,
+  deps: SendToolDeps,
   filePath: string,
-  latestCtx: Ctx | null,
 ): Promise<ToolGuardResult> {
-  if (!client || !running) return { allowed: false, error: fail(await stoppedBridgeReason()) }
+  if (!deps.client || !deps.running) return { allowed: false, error: fail(await stoppedBridgeReason()) }
 
-  const cwd = latestCtx?.cwd ?? process.cwd()
+  const cwd = deps.latestCtx?.cwd ?? process.cwd()
   const resolvedPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath)
 
   if (!isPathInCwd(resolvedPath, cwd)) {
@@ -62,20 +60,20 @@ async function guardSendToWechat(
   return { allowed: true, resolvedPath, cwd }
 }
 
-function guardFileSize(resolvedPath: string): ReturnType<typeof fail> | null {
+function guardFileSize(resolvedPath: string): { ok: true; size: number } | { ok: false; error: ReturnType<typeof fail> } {
+  let size: number
   try {
-    const stats = statSync(resolvedPath)
-    if (stats.size > 50 * 1024 * 1024) {
-      return fail(`文件过大 (${(stats.size / 1024 / 1024).toFixed(1)}MB)，上限 50MB`)
-    }
-    return null
+    size = statSync(resolvedPath).size
   } catch {
-    return fail(`无法读取文件: ${resolvedPath}`)
+    return { ok: false, error: fail(`无法读取文件: ${resolvedPath}`) }
   }
+  if (size > 50 * 1024 * 1024) {
+    return { ok: false, error: fail(`文件过大 (${(size / 1024 / 1024).toFixed(1)}MB)，上限 50MB`) }
+  }
+  return { ok: true, size }
 }
 
 export function registerWechatTools(pi: ExtensionAPI, enabled: boolean, deps: SendToolDeps): void {
-  // Older hosts ignore these fields; their active set and execution guards remain authoritative.
   const visibility = { exposure: enabled ? 'direct' as const : 'hidden' as const, defaultActive: enabled }
   pi.registerTool({
     ...visibility,
@@ -93,18 +91,17 @@ export function registerWechatTools(pi: ExtensionAPI, enabled: boolean, deps: Se
       fileName: Type.Optional(Type.String({ description: '在微信中显示的文件名（可选，默认使用原文件名）' })),
     }),
     async execute(_toolCallId, params, _signal) {
-      const guard = await guardSendToWechat(deps.getClient(), deps.isRunning(), params.filePath, deps.latestCtx())
+      const guard = await guardSendToWechat(deps, params.filePath)
       if (!guard.allowed) return guard.error
-      const client = deps.getClient()
-      if (!deps.isRunning() || !client) return fail(await stoppedBridgeReason())
-      const sizeError = guardFileSize(guard.resolvedPath)
-      if (sizeError) return sizeError
+      const client = deps.client
+      if (!deps.running || !client) return fail(await stoppedBridgeReason())
+      const size = guardFileSize(guard.resolvedPath)
+      if (!size.ok) return size.error
 
       try {
-        const stats = statSync(guard.resolvedPath)
         await client.sendFile(client.userId, guard.resolvedPath, params.fileName)
         const name = params.fileName ?? path.basename(guard.resolvedPath)
-        return ok(`✅ 文件「${name}」(${(stats.size / 1024).toFixed(1)} KB) 已发送到微信`)
+        return ok(`✅ 文件「${name}」(${(size.size / 1024).toFixed(1)} KB) 已发送到微信`)
       } catch (err) {
         debugLog(`send_file_to_wechat 失败: ${debugError(err)}`)
         return fail(`发送失败: ${formatError(err)}`)
@@ -127,17 +124,16 @@ export function registerWechatTools(pi: ExtensionAPI, enabled: boolean, deps: Se
       imagePath: Type.String({ description: '要发送的图片路径（项目目录内的绝对路径或相对路径，支持 png/jpg/gif/webp）' }),
     }),
     async execute(_toolCallId, params, _signal) {
-      const guard = await guardSendToWechat(deps.getClient(), deps.isRunning(), params.imagePath, deps.latestCtx())
+      const guard = await guardSendToWechat(deps, params.imagePath)
       if (!guard.allowed) return guard.error
-      const client = deps.getClient()
-      if (!deps.isRunning() || !client) return fail(await stoppedBridgeReason())
-      const sizeError = guardFileSize(guard.resolvedPath)
-      if (sizeError) return sizeError
+      const client = deps.client
+      if (!deps.running || !client) return fail(await stoppedBridgeReason())
+      const size = guardFileSize(guard.resolvedPath)
+      if (!size.ok) return size.error
 
       try {
-        const stats = statSync(guard.resolvedPath)
         await client.sendImage(client.userId, guard.resolvedPath)
-        return ok(`✅ 图片 (${(stats.size / 1024).toFixed(1)} KB) 已发送到微信`)
+        return ok(`✅ 图片 (${(size.size / 1024).toFixed(1)} KB) 已发送到微信`)
       } catch (err) {
         debugLog(`send_image_to_wechat 失败: ${debugError(err)}`)
         return fail(`发送失败: ${formatError(err)}`)

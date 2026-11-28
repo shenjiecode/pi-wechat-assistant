@@ -1,7 +1,7 @@
 import * as path from 'node:path'
 import { getStateDir, readJsonFile, writeJsonFile } from './state-storage.js'
 
-const CONFIG_FILE = path.join(getStateDir(), 'config.json')
+function configFile(): string { return path.join(getStateDir(), 'config.json') }
 
 export interface BridgeConfig {
   autoStart?: boolean
@@ -33,19 +33,24 @@ export interface BridgeConfig {
 
 /** 内存缓存，供同步读取使用（由异步 loadConfig / saveConfig 维护）。不重写未知字段或补写默认值。 */
 let _configCache: BridgeConfig | null = null
+let _configCachePath: string | null = null
 
 export function getConfigCache(): BridgeConfig {
-  return _configCache ?? {}
+  return _configCache && _configCachePath === configFile() ? _configCache : {}
 }
 
 export async function loadConfig(): Promise<BridgeConfig> {
-  if (_configCache) return _configCache
-  const data = await readJsonFile<BridgeConfig>(CONFIG_FILE)
+  const file = configFile()
+  if (_configCache && _configCachePath === file) return _configCache
+  const data = await readJsonFile<BridgeConfig>(file)
   _configCache = data ?? {}
+  _configCachePath = file
   return _configCache
 }
 
 export async function saveConfig(config: BridgeConfig): Promise<void> {
-  await writeJsonFile(CONFIG_FILE, config)
+  const file = configFile()
+  await writeJsonFile(file, config)
   _configCache = config
+  _configCachePath = file
 }

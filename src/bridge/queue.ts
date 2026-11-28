@@ -3,7 +3,6 @@
 // ============================================================================
 
 import { createHash, randomUUID } from 'node:crypto'
-import type { ExtensionContext, ExtensionCommandContext } from '@mariozechner/pi-coding-agent'
 import { debugLog, debugError, redactUrl } from '../shared/logger.js'
 import { WeixinClient } from '../wechat/client.js'
 import { fetchImageAsBase64, fetchFile, saveFileToDisk, type ImageData } from '../wechat/media.js'
@@ -12,9 +11,8 @@ import {
 } from '../shared/constants.js'
 import { summarizePreview, formatError, extractTextFromMessageContent } from '../shared/utils.js'
 import type { IncomingMessage } from '../wechat/types.js'
-import { getConfigCache } from './config.js'
-import { resolveImageBatchWaitMs, resolveImageMaxBytes, receiptText } from './config-values.js'
-import { markWechatSource, WECHAT_SOURCE_TAG, DEFAULT_WECHAT_BLOCKED_TOOLS, type WechatUserContent } from '../messaging/wechat-source.js'
+import { resolveConfig } from './config-values.js'
+import { markWechatSource, type WechatUserContent } from '../messaging/wechat-source.js'
 
 // --- 类型 ---
 
@@ -36,8 +34,6 @@ export interface QueuedMessage {
   replyProfile?: { blockedTools: string[] }
 }
 
-export type Ctx = ExtensionContext | ExtensionCommandContext
-
 type ObservedInput = { key: string; request: QueuedMessage | null }
 
 function contentKey(content: unknown): string {
@@ -47,12 +43,6 @@ function contentKey(content: unknown): string {
     : []
   return createHash('sha256').update(JSON.stringify([text, images])).digest('hex')
 }
-
-// --- 配置读取（同步，基于内存缓存） ---
-
-// Keep the existing queue exports as compatibility wrappers.
-export function getImageBatchWaitMs(): number { return resolveImageBatchWaitMs(getConfigCache()) }
-export function getImageMaxBytes(): number { return resolveImageMaxBytes(getConfigCache()) }
 
 // --- 简单信号量 ---
 
@@ -93,9 +83,6 @@ export class MessageQueue {
 
   /** 待注入的已保存文件列表（文件不进入队列和 AI 注入，等文字/图片触发时拼接） */
   private accumulatedFiles: Array<{ name: string; size: number; path: string }> = []
-
-  /** 最后对话的微信用户（用于桥接双向同步） */
-  lastWechatUser: { userId: string; contextToken: string } | null = null
 
   /** 图片预下载并发信号量 */
   private readonly _prefetchSemaphore = new Semaphore(MAX_IMAGE_PREFETCH_CONCURRENCY)
@@ -166,7 +153,6 @@ export class MessageQueue {
       void this.prefetchImage(request)
     }
 
-    this.lastWechatUser = { userId: message.userId, contextToken: message.contextToken }
     log(`[ENQUEUE-DONE] text=${hasText} images=${imageCount} file=${hasFile} queueAfter=${this.queue.length} accumulatedFiles=${this.accumulatedFiles.length}`)
     this.updateStatusBar()
 
@@ -185,9 +171,10 @@ export class MessageQueue {
 
     // 纯图片 → 批处理 ack + 计时器
     if (hasImages) {
-      if (!this.imageBatchAckSent && client && getConfigCache().sendAck !== false) {
+      const config = resolveConfig()
+      if (!this.imageBatchAckSent && client && config.sendAck) {
         this.imageBatchAckSent = true
-        void client.sendText(message.userId, receiptText(getConfigCache(), true)).catch(err => log(`[IMAGE-ACK-FAIL] ${debugError(err)}`))
+        void client.sendText(message.userId, config.imageBatchAckText).catch(err => log(`[IMAGE-ACK-FAIL] ${debugError(err)}`))
       }
       this.restartBatchTimer('图片')
       return
@@ -233,7 +220,7 @@ export class MessageQueue {
   }
 
   private restartBatchTimer(label: string): void {
-    const waitMs = getImageBatchWaitMs()
+    const waitMs = resolveConfig().imageBatchWaitMs
     if (this.batchTimer) clearTimeout(this.batchTimer)
     this.batchTimer = setTimeout(() => {
       this.batchTimer = null
@@ -249,7 +236,7 @@ export class MessageQueue {
     if (!request.imageUrl) return
     await this._prefetchSemaphore.acquire()
     try {
-      const imageData = await fetchImageAsBase64(request.imageUrl, request.imageAesKey, getImageMaxBytes(), this.getPollSignal())
+      const imageData = await fetchImageAsBase64(request.imageUrl, request.imageAesKey, resolveConfig().imageMaxBytes, this.getPollSignal())
       request.imageData = imageData ?? undefined
       debugLog(`图片预下载: ${imageData ? `success, size=${imageData.data.length}` : 'failed'}`)
     } finally {
@@ -336,7 +323,7 @@ export class MessageQueue {
         images.push(msg.imageData)
       } else if (msg.imageUrl) {
         log(`现场下载图片: ${redactUrl(msg.imageUrl)}`)
-        const imageData = await fetchImageAsBase64(msg.imageUrl, msg.imageAesKey, getImageMaxBytes(), this.getPollSignal())
+        const imageData = await fetchImageAsBase64(msg.imageUrl, msg.imageAesKey, resolveConfig().imageMaxBytes, this.getPollSignal())
         if (imageData) images.push(imageData)
       }
     }
@@ -395,7 +382,7 @@ export class MessageQueue {
       this.submit(texts.join('\n'), first)
     } else {
       if (hadImageMessages) {
-        const limitMB = Math.round(getImageMaxBytes() / 1024 / 1024)
+        const limitMB = Math.round(resolveConfig().imageMaxBytes / 1024 / 1024)
         await client.sendText(first.userId, `⚠️ 图片下载失败、格式不支持或超过大小限制（当前上限 ${limitMB}MB）。`).catch(() => {})
       }
       this.pendingInjection = null
@@ -405,9 +392,9 @@ export class MessageQueue {
       return
     }
 
-    if (!hadImageMessages && getConfigCache().sendAck !== false) {
+    if (!hadImageMessages && resolveConfig().sendAck) {
       try {
-        await client.sendText(first.userId, receiptText(getConfigCache()))
+        await client.sendText(first.userId, resolveConfig().ackText)
       } catch (err) {
         log(`发送回执失败: ${debugError(err)}`)
       }
@@ -417,14 +404,9 @@ export class MessageQueue {
   // --- 重置 ---
 
   private submit(content: WechatUserContent, request: QueuedMessage): void {
-    const config = getConfigCache().messageSourceTag
-    const enabled = config?.enabled !== false
-    request.replyProfile = enabled
-      ? { blockedTools: [...(config?.blockedTools ?? DEFAULT_WECHAT_BLOCKED_TOOLS)] }
-      : undefined
-    const marked = enabled
-      ? markWechatSource(content, config?.wechatTag?.trim() || WECHAT_SOURCE_TAG)
-      : content
+    const config = resolveConfig()
+    request.replyProfile = config.sourceEnabled ? { blockedTools: config.blockedTools } : undefined
+    const marked = config.sourceEnabled ? markWechatSource(content, config.wechatTag) : content
     const submission = { request, key: contentKey(marked), inputObserved: false }
     this.submittedRequests.push(submission)
     // Safe both while idle and while Pi is preparing or executing a run.

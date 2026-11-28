@@ -3,8 +3,7 @@
 // ============================================================================
 //
 // 补全项结构刻意与宿主 AutocompleteItem 一致（value/label/description），
-// 这样不依赖任一版本的 pi-tui，也能通过 registerCommand 的
-// getArgumentCompletions 交给宿主渲染。
+// 通过 registerCommand 的 getArgumentCompletions 交给宿主渲染。
 //
 // 宿主的 applyCompletion 会把“整个参数文本”替换成 item.value，因此这里的
 // value 必须包含已完成的参数前缀，例如 `config ack on` 而不是 `on`。

@@ -147,7 +147,7 @@ describe('WeixinClient sender authorization', () => {
 
     await expect(client.getUpdates()).resolves.toEqual([])
     expect(client.lastActiveUserId).toBeNull()
-    expect(client.getKnownUsers()).toEqual([])
+    expect(client.hasContextToken).toBe(false)
     expect(mocks.saveContextTokensThrottled).not.toHaveBeenCalled()
     expect(mocks.saveSeenIds).not.toHaveBeenCalled()
   })
@@ -164,7 +164,7 @@ describe('WeixinClient sender authorization', () => {
     expect(messages).toHaveLength(1)
     expect(messages[0].userId).toBe('bound-user')
     expect(client.lastActiveUserId).toBe('bound-user')
-    expect(client.getKnownUsers()).toEqual(['bound-user'])
+    expect(client.hasContextToken).toBe(true)
     expect(mocks.saveContextTokensThrottled).toHaveBeenCalledWith({
       lastUserId: 'bound-user',
       tokens: { 'bound-user': 'context-owner-message' },
@@ -183,7 +183,7 @@ describe('WeixinClient sender authorization', () => {
     const client = await WeixinClient.create(credentials)
 
     expect(client.lastActiveUserId).toBeNull()
-    expect(client.getKnownUsers()).toEqual(['bound-user'])
+    expect(client.hasContextToken).toBe(true)
   })
 
   it('attempts sending to the bound user without requiring a first inbound message', async () => {

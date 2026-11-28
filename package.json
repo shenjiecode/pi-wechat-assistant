@@ -33,6 +33,7 @@
     "typecheck:pi": "node scripts/check-pi-compat.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "vitest run tests/e2e",
     "preversion": "npm run check && npm run typecheck:pi",
     "prepack": "npm run typecheck",
     "check:architecture": "node scripts/check-architecture.mjs",
@@ -60,15 +61,11 @@
     "prompts": []
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@mariozechner/pi-coding-agent": "*",
+    "@earendil-works/pi-coding-agent": ">=1.2.0",
     "@sinclair/typebox": "*"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-coding-agent": {
-      "optional": true
-    },
-    "@mariozechner/pi-coding-agent": {
       "optional": true
     },
     "@sinclair/typebox": {

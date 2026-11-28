@@ -147,9 +147,8 @@ describe('bridge bidirectional sync and lifecycle', () => {
 
   const command = (args: string) => commands.wechat.handler(args, ctx)
 
-  it.each(['busy', 'Pi queue', 'bridge queue', 'same receive batch', 'unsupported host'])('refuses remote /new for %s without submitting a prompt', async reason => {
+  it.each(['busy', 'Pi queue', 'bridge queue', 'same receive batch'])('refuses remote /new for %s without submitting a prompt', async reason => {
     ctx.hasPendingMessages = vi.fn(() => reason === 'Pi queue')
-    if (reason === 'unsupported host') installExtension(false)
     if (reason === 'busy') ctx.isIdle.mockReturnValue(false)
     const incoming = (text: string) => ({
       userId: 'bound-user', raw: { from_user_id: 'bound-user' }, type: 'text', text,
@@ -424,7 +423,6 @@ describe('bridge bidirectional sync and lifecycle', () => {
     await handlers.agent_before_settle({ outcome }, ctx)
     await handlers.agent_settled({ aborted }, ctx)
   }
-  const modern = () => { ctx.isProjectTrusted = () => ({}) }
 
   async function activity(text: string, userId = 'bound-user') {
     await vi.waitFor(() => expect(state.receive).toBeTypeOf('function'))
@@ -443,14 +441,12 @@ describe('bridge bidirectional sync and lifecycle', () => {
     beforeEach(() => { state.config.sendAck = false })
 
     async function startSummary() {
-      modern()
       await command('config summary on')
       await command('start')
       await wechatInput('检查构建', true)
     }
 
     it('defaults to incremental replies and persists only explicit menu or command selections', async () => {
-      modern()
       await command('config show')
       expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.stringContaining('完成摘要: 已关闭（默认）'), 'info')
       expect(state.config.completionSummary).toBeUndefined()
@@ -489,7 +485,6 @@ describe('bridge bidirectional sync and lifecycle', () => {
     })
 
     it('adds the summary instruction only to the opt-in WeChat rules', async () => {
-      modern()
       await command('start')
       const prepare = () => handlers.before_agent_start({ systemPrompt: 'base', prompt: 'work' }, ctx)
       expect((await prepare()).systemPrompt).not.toContain('需要你回复：')
@@ -588,7 +583,6 @@ describe('bridge bidirectional sync and lifecycle', () => {
     })
 
     it('summarizes opted-in desktop replies and respects withdrawal of desktop sync', async () => {
-      modern()
       state.config = { completionSummary: true, bidirectionalSync: true }
       await command('start')
       await startRun('desktop task')
@@ -606,21 +600,6 @@ describe('bridge bidirectional sync and lifecycle', () => {
       expect(outgoing()).toEqual([])
     })
 
-    it.each([false, true])('uses realtime when the host lacks a reliable outcome, settledOnly=%s', async settledOnly => {
-      if (settledOnly) {
-        await handlers.session_shutdown({}, ctx)
-        installExtension(false)
-        modern()
-        await handlers.session_start({}, ctx)
-      }
-      await command('config summary on')
-      expect(ctx.ui.notify).toHaveBeenLastCalledWith(expect.stringContaining('使用实时回复'), 'info')
-      await command('start')
-      await wechatInput('legacy', true)
-      await reply('immediate')
-      if (settledOnly) await handlers.agent_settled({}, ctx)
-      expect(outgoing()).toEqual([['bound-user', 'immediate']])
-    })
   })
 
   describe('pending text replies (#53)', () => {
@@ -745,7 +724,6 @@ describe('bridge bidirectional sync and lifecycle', () => {
     })
 
     it('queues model failure notices too, without regenerating them on activation', async () => {
-      modern()
       await command('start')
       await wechatInput('work', true)
       await failure('quota exceeded')
@@ -797,8 +775,7 @@ describe('bridge bidirectional sync and lifecycle', () => {
     expect(state.client.sendText).toHaveBeenCalledWith('bound-user', 'Custom receipt')
   })
 
-  it('notifies modern hosts only at final settlement, even after progress, and never replays history', async () => {
-    modern()
+  it('notifies only at final settlement, even after progress, and never replays history', async () => {
     await command('start')
     await wechatInput('work', true)
     await reply('working')
@@ -814,7 +791,6 @@ describe('bridge bidirectional sync and lifecycle', () => {
   })
 
   it('keeps WeChat routing and question guards across retries, and suppresses recovered errors', async () => {
-    modern()
     state.config.bidirectionalSync = false
     await command('start')
     await wechatInput('work', true)
@@ -827,8 +803,7 @@ describe('bridge bidirectional sync and lifecycle', () => {
     expect(outgoing()).toEqual([['bound-user', 'recovered']])
   })
 
-  it('reports only the last failed attempt after modern retry exhaustion', async () => {
-    modern()
+  it('reports only the last failed attempt after retry exhaustion', async () => {
     await command('start')
     await wechatInput('work', true)
     await failure('temporary failure')
@@ -840,12 +815,11 @@ describe('bridge bidirectional sync and lifecycle', () => {
   })
 
   it.each(['aborted-message', 'aborted-settlement', 'retry-cancel-before-boundary', 'aborted-signal'])('does not report user cancellation: %s', async mode => {
-    modern()
     await command('start')
     await wechatInput('work', true)
     if (mode === 'retry-cancel-before-boundary') {
       await failure()
-      await handlers.agent_settled({}, ctx) // 0.99.2 has no aborted field
+      await handlers.agent_settled({}, ctx) // a host without the aborted field reports none
       expect(outgoing()).toEqual([])
       // A fresh request restores a real reply target after settlement.
       await wechatInput('second request', true)
@@ -867,57 +841,7 @@ describe('bridge bidirectional sync and lifecycle', () => {
     expect(outgoing()).toEqual([])
   })
 
-  describe('Pi 0.84 settlement-only host', () => {
-    beforeEach(async () => {
-      await handlers.session_shutdown({}, ctx)
-      installExtension(false)
-      modern()
-      await handlers.session_start({}, ctx)
-      await command('start')
-    })
-    it.each(['cancel-during-backoff', 'retry-exhausted'])('sends one conservative notice for %s, including subsequent requests', async outcome => {
-      for (let request = 0; request < 2; request++) {
-        state.client.sendText.mockClear()
-        await wechatInput(`work ${request}`, true)
-        await failure('temporary error')
-        await handlers.agent_end({ messages: [] }, ctx)
-        if (outcome === 'retry-exhausted') {
-          await handlers.agent_start({}, ctx)
-          await failure('last attempt error')
-          await handlers.agent_end({ messages: [] }, ctx)
-        }
-        expect(outgoing()).toEqual([])
-        // Both outcomes have the same public event on 0.84: no aborted field.
-        await handlers.agent_settled({}, ctx)
-        const detail = outcome === 'retry-exhausted' ? 'last attempt error' : 'temporary error'
-        expect(outgoing()).toEqual([['bound-user', `⚠️ 此前一次模型请求失败：${detail}`]])
-        await handlers.agent_settled({}, ctx)
-        expect(outgoing()).toHaveLength(1)
-      }
-    })
-    it('suppresses a recovered retry', async () => {
-      await wechatInput('work', true)
-      await failure()
-      await handlers.agent_end({ messages: [] }, ctx)
-      await handlers.agent_start({}, ctx)
-      await reply('recovered')
-      await handlers.agent_settled({}, ctx)
-      expect(outgoing()).toEqual([['bound-user', 'recovered']])
-    })
-    it.each(['message', 'signal'])('suppresses explicit cancellation via %s', async mode => {
-      await wechatInput('work', true)
-      const abort = new AbortController()
-      ctx.signal = abort.signal
-      await failure()
-      if (mode === 'signal') abort.abort()
-      else await handlers.message_end({ message: { role: 'assistant', stopReason: 'aborted', content: [] } }, ctx)
-      await handlers.agent_settled({}, ctx)
-      expect(outgoing()).toEqual([])
-    })
-  })
-
   it('does not infer model failure from keywords, tool errors, history, or silence', async () => {
-    modern()
     await command('start')
     await wechatInput('work', true)
     await reply('error failed aborted: these are example words')
@@ -928,31 +852,18 @@ describe('bridge bidirectional sync and lifecycle', () => {
     expect(outgoing()).toEqual([])
   })
 
-  it('sends one factual legacy attempt notice despite retries and repeated events', async () => {
-    await command('start')
-    await wechatInput('work', true)
-    await failure()
-    await handlers.agent_end({ messages: [] }, ctx)
-    await handlers.agent_start({}, ctx)
-    await failure()
-    expect(outgoing()).toEqual([['bound-user', expect.stringContaining('Pi 可能自动重试')]])
-    await reply('recovered')
-    await wechatInput('second request')
-    await failure()
-    expect(outgoing()).toHaveLength(3)
-  })
-
   it('does not retry an error notification after an ambiguous send rejection', async () => {
     await command('start')
     await wechatInput('work', true)
     state.client.sendText.mockRejectedValueOnce(new Error('connection lost'))
     await failure()
-    await failure()
+    await settle()
+    expect(outgoing()).toHaveLength(1)
+    await settle()
     expect(outgoing()).toHaveLength(1)
   })
 
   it.each([false, true])('respects TUI bidirectional sync=%s for failures and clears the old WeChat source', async enabled => {
-    modern()
     state.config.bidirectionalSync = enabled
     await command('start')
     await wechatInput('wechat', true)
@@ -966,7 +877,6 @@ describe('bridge bidirectional sync and lifecycle', () => {
   })
 
   it('drops pending notices when stopped', async () => {
-    modern()
     await command('start')
     await wechatInput('work', true)
     await failure()
@@ -976,7 +886,6 @@ describe('bridge bidirectional sync and lifecycle', () => {
   })
 
   it('reports actual WeChat failures with the source marker disabled', async () => {
-    modern()
     state.config.messageSourceTag = { enabled: false }
     state.config.bidirectionalSync = false
     await command('start')
@@ -987,7 +896,6 @@ describe('bridge bidirectional sync and lifecycle', () => {
   })
 
   it('does not clear a new request while the previous settlement notification is sending', async () => {
-    modern()
     state.config.bidirectionalSync = false
     await command('start')
     await wechatInput('first', true)
@@ -1033,15 +941,12 @@ describe('bridge bidirectional sync and lifecycle', () => {
     return () => result
   }
 
-  it.each(['no-model', 'legacy-auth', 'modern-auth'])('reports idle startup rejection without waiting for nonexistent lifecycle events: %s', async mode => {
+  it.each(['no-model', 'unavailable-auth'])('reports idle startup rejection without waiting for lifecycle events: %s', async mode => {
     await command('start')
     if (mode === 'no-model') ctx.model = undefined
     else {
       ctx.modelRegistry.hasConfiguredAuth.mockReturnValue(false)
-      if (mode === 'modern-auth') {
-        modern()
-        ctx.modelRegistry.getApiKeyAndHeaders.mockResolvedValue({ ok: false, error: 'auth unavailable' })
-      }
+      ctx.modelRegistry.getApiKeyAndHeaders.mockResolvedValue({ ok: false, error: 'auth unavailable' })
     }
     const result = await deliverIdleInput()
     await vi.waitFor(() => expect(result()).toEqual({ action: 'handled' }))
@@ -1049,8 +954,7 @@ describe('bridge bidirectional sync and lifecycle', () => {
     expect(state.queue.pendingInjection).toBeNull()
   })
 
-  it('allows lazy modern authentication rather than treating the synchronous snapshot as failure', async () => {
-    modern()
+  it('allows lazy authentication rather than treating the synchronous snapshot as failure', async () => {
     await command('start')
     ctx.modelRegistry.hasConfiguredAuth.mockReturnValue(false)
     ctx.modelRegistry.getApiKeyAndHeaders.mockResolvedValue({ ok: true, apiKey: 'test' })
@@ -1061,7 +965,6 @@ describe('bridge bidirectional sync and lifecycle', () => {
   })
 
   it('does not deliver stale asynchronous auth errors after stopping and restarting', async () => {
-    modern()
     await command('start')
     ctx.modelRegistry.hasConfiguredAuth.mockReturnValue(false)
     let resolve!: (value: unknown) => void

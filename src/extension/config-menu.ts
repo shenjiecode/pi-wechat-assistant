@@ -1,35 +1,32 @@
-import type { ExtensionCommandContext } from '@mariozechner/pi-coding-agent'
-import type { BridgeConfig } from '../bridge/config.js'
-import { receiptText } from '../bridge/config-values.js'
+import type { ExtensionCommandContext } from '@earendil-works/pi-coding-agent'
+import { loadConfig } from '../bridge/config.js'
+import { resolveConfig } from '../bridge/config-values.js'
 
 interface ConfigMenuDeps {
-  load: () => Promise<BridgeConfig>
   apply: (args: string) => Promise<void>
   prompt: (action: string) => Promise<void>
-  imageWait: () => number
-  imageMax: () => number
 }
 
-/** Use host dialogs: no runtime dependency on either generation of pi-tui. */
+/** Use host dialogs so the menu renders identically in TUI and RPC modes. */
 export async function showConfigMenu(ctx: ExtensionCommandContext, deps: ConfigMenuDeps): Promise<void> {
   let advanced = false
   const enabled = (value: boolean) => value ? '开启' : '关闭'
   while (true) {
-    const config = await deps.load()
+    const config = resolveConfig(await loadConfig())
     const entries: Array<{ id: string; label: string }> = advanced ? [
-      { id: 'remote-tools', label: `微信端 /tools 修改本机权限：${enabled(config.allowRemoteTools === true)} · 默认关闭，谨慎开启` },
-      { id: 'image-wait', label: `连发图片合并等待：${deps.imageWait()} 毫秒 · 微信连发多张图时凑成一批` },
-      { id: 'image-max', label: `单张图片下载上限：${deps.imageMax() / 1024 / 1024} MB · 超过则拒绝下载` },
+      { id: 'remote-tools', label: `微信端 /tools 修改本机权限：${enabled(config.allowRemoteTools)} · 默认关闭，谨慎开启` },
+      { id: 'image-wait', label: `连发图片合并等待：${config.imageBatchWaitMs} 毫秒 · 微信连发多张图时凑成一批` },
+      { id: 'image-max', label: `单张图片下载上限：${config.imageMaxBytes / 1024 / 1024} MB · 超过则拒绝下载` },
       { id: 'back', label: '返回常用设置' },
     ] : [
-      { id: 'ack', label: `收件回执通知：${enabled(config.sendAck !== false)} · 收到文字或图片时发送确认` },
-      { id: 'summary', label: `完成摘要：${enabled(config.completionSummary === true)} · Pi 本轮结束后发送一条摘要` },
+      { id: 'ack', label: `收件回执通知：${enabled(config.sendAck)} · 收到文字或图片时发送确认` },
+      { id: 'summary', label: `完成摘要：${enabled(config.completionSummary)} · Pi 本轮结束后发送一条摘要` },
       { id: 'ack-text', label: '文字回执内容：自定义 / 恢复默认' },
       { id: 'image-ack-text', label: '图片回执内容：自定义 / 恢复默认' },
-      { id: 'bidirectional', label: `双向同步：${enabled(config.bidirectionalSync === true)} · 电脑输入和 AI 回复也转发到微信` },
-      { id: 'auto-start', label: `自动启动微信桥接：${enabled(config.autoStart === true)} · 打开 pi 时尝试连接微信` },
+      { id: 'bidirectional', label: `双向同步：${enabled(config.bidirectionalSync)} · 电脑输入和 AI 回复也转发到微信` },
+      { id: 'auto-start', label: `自动启动微信桥接：${enabled(config.autoStart)} · 打开 pi 时尝试连接微信` },
       { id: 'handoff', label: `持锁接管方式：${config.handoff === 'auto' ? '自动' : '询问'} · ${config.handoff === 'auto' ? '其他会话持锁时直接请求交接' : '其他会话持锁时先弹窗确认'}` },
-      { id: 'source', label: `微信消息标识与排版：${enabled(config.messageSourceTag?.enabled !== false)} · 消息加来源标记，回复按微信风格` },
+      { id: 'source', label: `微信消息标识与排版：${enabled(config.sourceEnabled)} · 消息加来源标记，回复按微信风格` },
       { id: 'prompt', label: '回复模板：查看 / 导出 / 重载 · 约束 AI 回复微信的格式' },
       { id: 'advanced', label: '高级设置…' },
       { id: 'close', label: '关闭' },
@@ -42,7 +39,7 @@ export async function showConfigMenu(ctx: ExtensionCommandContext, deps: ConfigM
     }
     if (id === 'advanced' || id === 'back') { advanced = id === 'advanced'; continue }
     if (id === 'ack-text' || id === 'image-ack-text') {
-      const current = receiptText(config, id === 'image-ack-text')
+      const current = id === 'image-ack-text' ? config.imageBatchAckText : config.ackText
       const value = await ctx.ui.input('收件回执内容（留空恢复默认；Esc 取消）', current)
       if (value !== undefined) await deps.apply(`${id} ${value}`)
       continue
@@ -66,7 +63,7 @@ export async function showConfigMenu(ctx: ExtensionCommandContext, deps: ConfigM
         { label: '20 MB', value: 20 },
         { label: '50 MB（默认）', value: 50 },
       ]
-      const current = wait ? deps.imageWait() : deps.imageMax() / 1024 / 1024
+      const current = wait ? config.imageBatchWaitMs : config.imageMaxBytes / 1024 / 1024
       const choice = await ctx.ui.select(
         `${wait ? '连发图片合并等待' : '单张图片下载上限'}：当前 ${current} ${wait ? '毫秒' : 'MB'}`,
         [...presets.map(preset => preset.label), '自定义…'],

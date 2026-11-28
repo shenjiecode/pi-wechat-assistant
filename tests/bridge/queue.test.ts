@@ -3,7 +3,8 @@
 // ============================================================================
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { MessageQueue, getImageBatchWaitMs, getImageMaxBytes } from '../../src/bridge/queue.js'
+import { MessageQueue } from '../../src/bridge/queue.js'
+import { resolveConfig } from '../../src/bridge/config-values.js'
 import type { IncomingMessage } from '../../src/wechat/types.js'
 import { getConfigCache } from '../../src/bridge/config.js'
 import { fetchFile, fetchImageAsBase64, saveFileToDisk } from '../../src/wechat/media.js'
@@ -188,12 +189,6 @@ describe('MessageQueue — enqueue', () => {
     vi.useRealTimers()
   })
 
-  it('sets lastWechatUser after enqueue', () => {
-    const { queue } = makeQueue()
-    const msg = makeMsg({ text: 'hello' })
-    queue.enqueue(msg)
-    expect(queue.lastWechatUser).toEqual({ userId: 'user_1', contextToken: 'token_1' })
-  })
 })
 
 describe('MessageQueue — drain protection', () => {
@@ -213,7 +208,6 @@ describe('MessageQueue — reset', () => {
     const { queue } = makeQueue()
     queue.enqueue(makeMsg({ text: 'test 1' }))
     queue.enqueue(makeMsg({ text: 'test 2' }))
-    queue.lastWechatUser = { userId: 'u1', contextToken: 'ct1' }
     queue.pendingInjection = {} as any
     queue.activeRequest = {} as any
 
@@ -225,36 +219,34 @@ describe('MessageQueue — reset', () => {
   })
 })
 
-describe('getImageBatchWaitMs', () => {
+describe('resolveConfig image settings', () => {
   it('returns default when no config', () => {
-    expect(getImageBatchWaitMs()).toBe(8000)
+    expect(resolveConfig().imageBatchWaitMs).toBe(8000)
   })
 
   it('respects env override', () => {
     process.env.PI_WECHAT_IMAGE_BATCH_WAIT_MS = '3000'
-    expect(getImageBatchWaitMs()).toBe(3000)
+    expect(resolveConfig().imageBatchWaitMs).toBe(3000)
     delete process.env.PI_WECHAT_IMAGE_BATCH_WAIT_MS
   })
 
   it('clamps to valid range (rejects invalid values, falls back to default)', () => {
     process.env.PI_WECHAT_IMAGE_BATCH_WAIT_MS = '-500'
     // -500 fails Number.isFinite && >0 check, falls back to DEFAULT=8000
-    expect(getImageBatchWaitMs()).toBe(8000)
+    expect(resolveConfig().imageBatchWaitMs).toBe(8000)
     process.env.PI_WECHAT_IMAGE_BATCH_WAIT_MS = '999999'
     // clamps to max 60000
-    expect(getImageBatchWaitMs()).toBe(60000)
+    expect(resolveConfig().imageBatchWaitMs).toBe(60000)
     delete process.env.PI_WECHAT_IMAGE_BATCH_WAIT_MS
   })
-})
 
-describe('getImageMaxBytes', () => {
-  it('returns default 50MB', () => {
-    expect(getImageMaxBytes()).toBe(50 * 1024 * 1024)
+  it('returns default 50MB image cap', () => {
+    expect(resolveConfig().imageMaxBytes).toBe(50 * 1024 * 1024)
   })
 
   it('enforces minimum 1MB', () => {
     process.env.PI_WECHAT_IMAGE_MAX_BYTES = '100'
-    expect(getImageMaxBytes()).toBe(1024 * 1024)
+    expect(resolveConfig().imageMaxBytes).toBe(1024 * 1024)
     delete process.env.PI_WECHAT_IMAGE_MAX_BYTES
   })
 })

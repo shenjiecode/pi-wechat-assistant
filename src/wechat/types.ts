@@ -12,27 +12,6 @@ export interface Credentials {
   savedAt?: string
 }
 
-// --- 枚举常量 ---
-
-export const MessageType = {
-  USER: 1,
-  BOT: 2,
-} as const
-
-export const MessageState = {
-  NEW: 0,
-  GENERATING: 1,
-  FINISH: 2,
-} as const
-
-export const MessageItemType = {
-  TEXT: 1,
-  IMAGE: 2,
-  VOICE: 3,
-  FILE: 4,
-  VIDEO: 5,
-} as const
-
 // --- API 请求/响应 ---
 
 export interface BaseInfo {
@@ -184,13 +163,6 @@ export interface SendMediaMessageReq {
   }
   base_info: BaseInfo
 }
-
-export const UploadMediaType = {
-  IMAGE: 1,
-  VIDEO: 2,
-  FILE: 3,
-  VOICE: 4,
-} as const
 
 // --- 内部消息类型 ---
 

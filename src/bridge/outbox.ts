@@ -87,7 +87,7 @@ export class ReplyOutbox {
   }
 
   static async open(identity: OutboxIdentity, onChange?: () => void): Promise<ReplyOutbox> {
-    if (typeof identity.accountId !== 'string' || !identity.accountId || typeof identity.userId !== 'string' || !identity.userId) {
+    if (!identity.accountId.trim() || !identity.userId.trim()) {
       throw new OutboxStorageError('无法确认待补发回复所属的微信账号')
     }
     // Callers may pass a Credentials-shaped object: never persist its token.

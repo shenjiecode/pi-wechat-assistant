@@ -1,4 +1,4 @@
-// Login credentials and bridge ownership. Legacy exports remain for compatibility.
+// Login credentials and bridge ownership.
 import * as path from 'node:path'
 import { DEFAULT_BASE_URL, fetchQrCode, getQrCodeStatus, type QrStatusResponse } from '../wechat/api.js'
 import type { Credentials } from '../wechat/types.js'
@@ -6,38 +6,33 @@ import { inspectBridgeLock, type BridgeLockState } from './bridge-lock.js'
 import { acquireBridgeLock, releaseBridgeLock, requestBridgeHandoff, handoffRequested } from './bridge-ownership.js'
 import { getStateDir, ensureStateDir, readJsonFile, writeJsonFile, deleteFile } from './state-storage.js'
 
-export { getStateDir } from './state-storage.js'
-export { loadConfig, saveConfig, getConfigCache, type BridgeConfig } from './config.js'
-export { loadCursor, saveCursor, loadSeenIds, saveSeenIds, clearTransportState, clearContextTokens, loadContextTokens, saveContextTokensThrottled, flushContextTokens, type PersistedContextTokens } from './transport-state.js'
-
-const CREDS_FILE = path.join(getStateDir(), 'credentials.json')
-const LOCK_FILE = path.join(getStateDir(), 'session.lock')
-export function getCredentialsPath(): string { return CREDS_FILE }
+export function getCredentialsPath(): string { return path.join(getStateDir(), 'credentials.json') }
+function getLockFile(): string { return path.join(getStateDir(), 'session.lock') }
 
 export async function loadCredentials(): Promise<Credentials | null> {
-  return readJsonFile<Credentials>(CREDS_FILE)
+  return readJsonFile<Credentials>(getCredentialsPath())
 }
 
 export async function saveCredentials(creds: Credentials): Promise<void> {
-  await writeJsonFile(CREDS_FILE, { ...creds, savedAt: new Date().toISOString() })
+  await writeJsonFile(getCredentialsPath(), { ...creds, savedAt: new Date().toISOString() })
 }
 
 export async function clearCredentials(): Promise<void> {
-  await deleteFile(CREDS_FILE)
+  await deleteFile(getCredentialsPath())
 }
 
 // --- 简单文件锁 ---
 
-export function getBridgeLockState() { return inspectBridgeLock(LOCK_FILE) }
+export function getBridgeLockState() { return inspectBridgeLock(getLockFile()) }
 export async function acquireLock(sessionId: string) {
   await ensureStateDir()
-  return acquireBridgeLock(LOCK_FILE, sessionId)
+  return acquireBridgeLock(getLockFile(), sessionId)
 }
-export function releaseLock(sessionId: string) { return releaseBridgeLock(LOCK_FILE, sessionId) }
+export function releaseLock(sessionId: string) { return releaseBridgeLock(getLockFile(), sessionId) }
 export function requestHandoff(owner: Extract<BridgeLockState, { sessionId: string }>, signal?: AbortSignal, onProgress?: (elapsedMs: number) => void) {
-  return requestBridgeHandoff(LOCK_FILE, owner, 30_000, signal, onProgress)
+  return requestBridgeHandoff(getLockFile(), owner, 30_000, signal, onProgress)
 }
-export function hasHandoffRequest(sessionId: string) { return handoffRequested(LOCK_FILE, sessionId) }
+export function hasHandoffRequest(sessionId: string) { return handoffRequested(getLockFile(), sessionId) }
 // --- 二维码登录 ---
 
 export async function getQrCode(baseUrl?: string): Promise<{ url: string; token: string }> {

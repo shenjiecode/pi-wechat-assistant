@@ -5,9 +5,8 @@ const detailHint = '完整回复见 Pi 终端。'
 
 export const SUMMARY_REPLY_RULE = '把最终结果写在开头的短段落里。按实际情况用“任务完成：”“任务失败：”或“需要你回复：”开头，写清结果、原因或可选项。结果尚不确定时用“摘要：”。空行后可保留完整说明。'
 
-export function completionSummarySetting(enabled: boolean, supported: boolean): string {
-  if (!enabled) return '已关闭（默认）'
-  return supported ? '已开启' : '已开启（当前 Pi 缺少完整结束事件，使用实时回复）'
+export function completionSummarySetting(enabled: boolean): string {
+  return enabled ? '已开启' : '已关闭（默认）'
 }
 
 function shortTitle(task: string): string {
