@@ -163,7 +163,7 @@ describe('multi-process bridge handoff and outbox takeover', () => {
     fakeLlm.queueText('A 进程回复')
     env.fakeIlink.pushText('给A的消息')
     await vi.waitFor(() => expect(env.fakeIlink.sentMessages.some(message => message.text === 'A 进程回复')).toBe(true), WAIT)
-    expect(await sessionTexts(projectA)).toContain('给A的消息')
+    await vi.waitFor(async () => expect(await sessionTexts(projectA)).toContain('给A的消息'), WAIT)
 
     // Then a ret=-2 rejection persists a pending reply to the on-disk outbox.
     env.fakeIlink.failNextSend({ ret: -2, errmsg: 'prepare failed', failFallbackToo: true })
@@ -202,10 +202,13 @@ describe('multi-process bridge handoff and outbox takeover', () => {
     expect(texts.filter(text => text === 'A 进程待补发回复')).toHaveLength(1)
 
     // B's own project received the turn; A's project did not.
-    const bSessions = await sessionTexts(projectB)
-    expect(bSessions).toContain('给B的消息')
-    expect(bSessions).toContain('B 进程回复')
-    expect(bSessions).not.toContain('给A的消息')
+    // Wait for Pi to finish flushing the assistant turn to B's session JSONL on disk.
+    await vi.waitFor(async () => {
+      const bSessions = await sessionTexts(projectB)
+      expect(bSessions).toContain('给B的消息')
+      expect(bSessions).toContain('B 进程回复')
+      expect(bSessions).not.toContain('给A的消息')
+    }, WAIT)
     const aSessions = await sessionTexts(projectA)
     expect(aSessions).not.toContain('给B的消息')
   }, 120_000)
@@ -263,6 +266,6 @@ describe('multi-process bridge handoff and outbox takeover', () => {
     fakeLlm.queueText('B 已接管')
     env.fakeIlink.pushText('问问B')
     await vi.waitFor(() => expect(env.fakeIlink.sentMessages.some(message => message.text === 'B 已接管')).toBe(true), WAIT)
-    expect(await sessionTexts(projectB)).toContain('问问B')
+    await vi.waitFor(async () => expect(await sessionTexts(projectB)).toContain('问问B'), WAIT)
   }, 120_000)
 })
