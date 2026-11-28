@@ -1,95 +1,66 @@
-# Maintenance and release checks
+# 维护指南
 
-English | [简体中文](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.zh.md)
+本指南面向维护者与准备发版的贡献者。环境准备见[贡献指南](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.md)。
 
-This guide is for the maintainer or someone preparing a release. For development setup, use [Contributing](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.md).
+## 自动检查
 
-## What each check actually proves
+| 命令 | 内容 |
+| --- | --- |
+| `npm run check` | 类型检查、架构边界（`check:architecture`）、单元/集成测试、文档链接（`check:docs`）与 npm 发布文件列表（`check:package`） |
+| `npm run test:e2e` | 近真机端到端测试：14 个端到端用例（12 个全链路真机场景 + 2 个双进程 OS 交接）。除 Fake iLink/CDN 与 Fake LLM 服务器外零 mock，运行真实 Pi SDK |
+| `npm run typecheck:pi` | 针对 Pi 1.2.0、1.4.0 的发布声明检查 API 兼容性；开发基线 Pi 1.6.0 由 `npm run typecheck` 覆盖 |
+| `npm run audit:production` | 生产依赖已知漏洞审计，high/critical 直接失败 |
+| `npm audit` | 完整开发依赖树审计 |
 
-| Check | Evidence | Does not prove |
-| --- | --- | --- |
-| `npm run check` | Source types, dependency boundaries, regression tests, bilingual navigation, npm file list | A live WeChat login or delivery |
-| `npm run typecheck:pi` | Compatibility against published APIs for the listed Pi versions | That every host/runtime combination works with a real account |
-| CI minimum-runtime job | Compiled registration and text queue submission on Node 20.3.0 | That today's Pi host can itself run on Node 20.3.0 |
-| `npm run audit:production` | Known advisories in the production dependency tree; high/critical findings fail | Absence of vulnerabilities in project code, the user's host or the external service |
-| `npm audit` | Known advisories in the full locked development tree | Runtime reachability of every finding |
-| Real-account checklist below | The scenarios actually exercised with recorded versions | Untested pages, devices, network conditions or future service behavior |
-
-CI runs the test suite on Linux and Windows with Node 20.19.0, 22 and 24. The **CI success** job requires the entire matrix, minimum-runtime jobs and production audit to succeed; skipped or failed dependencies do not count as success. Configure this aggregate as a required check only after it has run successfully on GitHub. Adding a workflow file does not update repository branch-protection settings.
-
-The real Pi SDK integration tests require Node >=22.19, matching the development Pi 1.6 host. They run in the Node 22/24 CI jobs with simulated WeChat transport. The older Node jobs exercise the extension tests and the separate Node 20.3 runtime smoke check.
-
-Local commands, from the checkout:
+本地完整流程：
 
 ```bash
 npm ci
 npm run check
+npm run test:e2e
 npm run typecheck:pi
 npm run audit:production
-npm audit
 ```
 
-The regular type check uses the current `@earendil-works/pi-coding-agent` development declarations. The historical import namespace is mapped in `tsconfig.json` for type checking only. The extension's Pi imports remain type-only; the compatibility script maps each selected host's published declarations separately, including 0.73.1. Older host packages are downloaded into an isolated cache for declarations, not installed or executed as the development host. API compatibility is not a recommendation to run an old host with known security advisories.
+CI 在 Linux/Windows、Node 20.19.0/22/24 上运行主检查，另有 Node 20.3.0 最小运行时冒烟任务（Node >= 22.19 才能运行 Pi SDK 集成与 E2E 测试）。`CI success` 聚合任务要求整个矩阵、最小运行时与生产审计全部成功。
 
-## Real-account acceptance before release
+`npm run test:e2e` 覆盖以下功能场景：扫码登录与凭据复用、文本往返与模型错误通知、真实 `ret=-2` 暂存补发（含重启后恰好一次重放）、AES 加密图片解密与批量、文件收发、回执开关与自定义回执、桌面同步开关、停止/重连与游标恢复、旧配置升级、远程 `/new`、完成摘要，以及双进程协作交接（Auto/Ask 模式）与 outbox 接管。所有场景通过真实 HTTP/SSE 与 Pi SDK 运行。
 
-Record the commit, extension version, Pi package/version, Node version, OS and date. Mark each row **pass / fail / not run**, with a short observation. Use sample content, not personal conversations.
+## 发版前最小真机冒烟
 
-| Scenario | Acceptance condition |
-| --- | --- |
-| Fresh login and restart | Scan and confirm; receive a real AI reply; restart and reuse credentials successfully. |
-| Text and errors | A WeChat task receives the final reply; a deliberately unavailable model produces a useful error. Restore the working model afterward. |
-| Deferred text | After an observed real `ret=-2` rejection, a fresh WeChat message receives the labeled old reply and normal new-input handling; delivered chunks do not repeat, including after restart/same-account handoff. Mark not run if rejection was not observed; do not corrupt credentials to simulate it. |
-| Images | Single image and a small image batch reach an image-capable model; no duplicate final reply. |
-| Files | Inbound file saves without starting a task; follow-up text uses it; an outgoing project file arrives and opens. |
-| Receipt off / custom text | Receipt behavior matches the setting; AI replies and file-save confirmations still work. |
-| Desktop mirroring off / on | Off sends only WeChat-task replies; on mirrors new desktop input and replies, without replaying history. |
-| Session handoff | A stops its bridge, B starts; a fresh WeChat task reaches B's project; A remains open. Test Ask and Auto. |
-| Auto-start and manual start | Enabling auto-start offers the handoff choice; manual start honors Auto with auto-start off. |
-| Stop and reconnect | Stop blocks bridge sending; start resumes; restarting does not replay old received messages. |
-| Upgrade existing configuration | Custom template, unknown JSON fields, `false` toggles and zero image delay survive. |
+功能场景已由 `npm run test:e2e` 自动覆盖，常规发版只需记录提交、扩展版本、Pi 版本、Node 版本与日期，并执行：
 
-For handoff timeout, cancellation, changed ownership and unauthorized senders, keep automated regression tests as well. Do not corrupt a real credential store or force-kill a user's active task just to demonstrate an error case. The [tutorial](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/tutorial.md) provides ordinary round-trip and handoff steps.
+1. **文本往返**：微信发一条任务，收到 AI 回复。
+2. **图片往返**：仅在发大版本或排查 iLink 上游变化时执行——微信发一张图片，确认模型正常处理。
 
-## Deterministic local rejection test
+## 本地模拟拒收
 
-Waiting a few minutes may not make WeChat reject a reply. Use the repository-only helper to trigger this path without editing credentials or disconnecting the network. It is excluded from the npm package. Stop the old test bridge and exit Pi, then run from the repository root (do not load `index.ts` alongside it):
+等待真实 `ret=-2` 不可控时，用仓库自带的辅助脚本触发同一条代码路径（不会改动真实凭证，已排除出 npm 包）。先停掉旧桥接并退出 Pi，再从仓库根目录运行（不要同时加载 `index.ts`）：
 
 ```bash
 pi --no-extensions -e ./scripts/test-pending-reply.ts
 ```
 
-1. In Pi, run `/wechat start`, then `/wechat-test-reject`.
-2. From WeChat, ask “只回复：补发测试53”. Only an exact matching outgoing test reply gets one simulated `ret=-2`, including the existing context-free fallback; other requests are unchanged.
-3. Wait for “回复已暂存” and “待补发:1” in Pi. The phone should not have the test result yet. Send `/status` from WeChat.
-4. Expect “【补发】”, then “补发测试53”, then a status with zero pending replies. Another `/status` must not repeat the result.
-5. For restart recovery, exit after the reply is saved at step 3, reopen the same helper and start the bridge, then send `/status` from WeChat. Do not arm another rejection after restarting.
+1. 在 Pi 中执行 `/wechat start`，然后 `/wechat-test-reject`。
+2. 从微信发送「只回复：补发测试53」。只有完全匹配的出站测试回复会被模拟一次 `ret=-2`，其他请求不受影响。
+3. 等待「回复已暂存」与「待补发:1」，手机端此时不应收到测试结果；从微信发送 `/status`。
+4. 预期依次收到「【补发】」、「补发测试53」以及待补发为零的状态；再次 `/status` 不应重复。
+5. 验证重启恢复：第 3 步保存后退出，重新打开辅助脚本并启动桥接，再从微信发 `/status`。重启后不要再武装新的拒收。
 
-Interception is off by default and must be armed before the task. `/wechat-test-reject off` cancels unused arming; shutdown/session replacement also removes it. The simulation disarms after the selected send, without changing media behavior. Exit the helper and start Pi normally when finished. Record this as “local simulated rejection + WeChat replay verification”, not proof of a real server-side `ret=-2`.
+拦截默认关闭，须在任务开始前武装；`/wechat-test-reject off` 取消未使用的武装，关闭桥接或更换会话也会清除。模拟在选中的那次发送后自动解除。
 
-## Dependencies and CI maintenance
+## 调试日志
 
-Dependabot groups npm and GitHub Actions version updates into one weekly cross-ecosystem PR targeting `develop`, with at most one open grouped PR. Major-version upgrades are ignored for both ecosystems and require an explicit maintenance decision; minor and patch updates remain eligible. Review behavior and CI before merging; there is no automatic merge. The configuration must reach the default branch before GitHub starts using it. Security alerts/updates are separate repository settings: this version-update grouping does not enable or disable them, and security PRs may be additional to the single version-update PR.
+启动 Pi 前设置 `PI_WECHAT_DEBUG=1` 开启调试日志。日志只记录事件类型、长度、计数、来源与错误码，不含消息预览、账号 ID、附件对象、文件名或完整错误文本；新增日志调用点只能传诊断元数据。日志约 1 MiB 轮换出一份 `.1` 备份，单条消息截断到 1000 字符。
 
-When an audit fails, inspect the affected dependency path, advisory and fixed versions. Update the lockfile, rerun checks, and record what remains. Do not use `npm audit fix --force` merely to make a number disappear. Do not install unsupported development tooling to silence an alert while still claiming the older CI Node matrix works.
+交接排障时在两端分别开启并使用独立输出文件。原因码含义：
 
-The lockfile uses Pi `1.6.0` for development. Pi supplies `undici 8.12.4` with the upstream security fixes. After a host update, use `npm ls undici` to check the installed version, run both audits, and check Pi API compatibility. Users update their own Pi installation separately. [Pi 1.6.0 release notes](https://github.com/earendil-works/pi/releases/tag/v1.6.0)
+- `HANDOFF_UNSUPPORTED`：持有方未声明协作交接支持——升级并重启持有方，或先在那里 `/wechat stop`。
+- `HANDOFF_NON_INTERACTIVE`：当前模式无法自动接管。
+- `LOCK_CONFLICT`：获取锁时归属已被占用。
+- `HANDOFF_OWNER_CHANGED` / `HANDOFF_LOCK_UNKNOWN` / `HANDOFF_TIMEOUT`：归属变更、锁状态不确定与超时。
 
-Keep the runtime Node floor separate from development tools and the user's Pi host. New Vitest or Pi releases may raise their own Node requirements. Compatibility samples live in `scripts/check-pi-compat.mjs`; add a representative new host when its API changes.
-
-## Debugging without collecting conversations
-
-Debug logging is off unless `PI_WECHAT_DEBUG=1` is set before starting Pi. New logs record event types, lengths, counts, origins and error codes instead of message previews, account IDs, raw attachment objects, file names or full error text. `debugLog` itself is not a general secret scrubber: new call sites must pass only diagnostic metadata.
-
-For handoff troubleshooting, enable logs on both ends with separate output files. `[bridge-start]` records command/automatic startup, caller/owner PIDs, the protocol marker, failure reasons and elapsed time; `[bridge-handoff]` marks an owner receiving the request; `[bridge-stop]` identifies poll draining, send draining, state persistence, offline notification and lock release. Session IDs and credentials are excluded.
-
-`HANDOFF_UNSUPPORTED` means the owner did not declare cooperative handoff support: upgrade and restart the owner, or run `/wechat stop` there first. `HANDOFF_NON_INTERACTIVE` means the current mode cannot take over automatically. `LOCK_CONFLICT` means ownership was occupied when acquisition was attempted. `HANDOFF_OWNER_CHANGED`, `HANDOFF_LOCK_UNKNOWN` and `HANDOFF_TIMEOUT` distinguish ownership changes, uncertain lock state and timeout. These diagnostics do not establish the owner's actual extension version.
-
-While waiting, progress appears every five seconds; successful handoff reports the old owner's release. A timeout ends that startup attempt with no background retry. Record both extension versions, whether `/reload` was used, elapsed time and relevant sanitized logs, then inspect `/wechat status` before retrying.
-
-The log rotates at approximately 1 MiB to one `.1` backup; individual messages are bounded to 1,000 characters and control characters are flattened. Rotation is best effort across processes, not a transactionally exact disk quota. Use a separate file per process when debugging concurrent sessions. Files created by older versions may still contain private data; updating does not sanitize old logs.
-
-For one PowerShell session, using a project-local output directory:
+PowerShell（输出到项目本地文件）：
 
 ```powershell
 $env:PI_WECHAT_DEBUG = '1'
@@ -99,16 +70,22 @@ Remove-Item Env:PI_WECHAT_DEBUG
 Remove-Item Env:PI_WECHAT_DEBUG_FILE
 ```
 
-For bash:
+bash：
 
 ```bash
 PI_WECHAT_DEBUG=1 PI_WECHAT_DEBUG_FILE="$PWD/debug.log" pi
 ```
 
-Inspect logs before sharing. Status output and Pi/provider logs are separate from this logger and may contain identifiers or private information. Share the relevant sanitized excerpt, not a full directory.
+分享日志前先检查内容，只分享脱敏后的相关片段。
 
-## Release and rollback
+## 依赖与 CI
 
-Follow the [release workflow](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.md): reviewed branch → `develop` → `main` → explicit version tag. Do not tag or publish merely because CI is green. Keep a real-account acceptance record with the release decision.
+Dependabot 每周把 npm 与 GitHub Actions 的版本更新合并为一个指向 `develop` 的 PR（最多同时存在一个）；忽略主版本升级（需维护者显式决定），minor/patch 正常参与。无自动合并，合并前人工确认行为与 CI。安全告警与更新是独立的仓库设置，与此分组互不影响。
 
-After publishing, verify the GitHub Release, publish workflow, npm version and installable archive independently. To recover from a regression, use the [upgrade guide](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/upgrading.md) to select a known release; preserve preferences and custom templates. Do not routinely delete login/transport state, rewrite published tags or force-push the shared branches.
+审计失败时，检查受影响的依赖路径、公告与修复版本，更新锁文件并重跑检查。锁文件的开发基线为 Pi `1.6.0`；宿主升级后用 `npm ls undici` 确认版本，运行两项审计并检查 Pi API 兼容性。用户自行更新自己的 Pi 安装。兼容样本在 `scripts/check-pi-compat.mjs` 中维护，宿主 API 变化时补充对应版本。
+
+## 发布与回滚
+
+分支流程见[贡献指南](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.md)：评审分支 → `develop` → `main` → 显式版本 tag。tag 触发发布 workflow：校验提交属于 `main` 且 tag 与包版本一致，运行检查，发布 npm 并从 changelog 创建 GitHub Release；普通推送不发布。已发布 tag 不可变，后续修复使用新版本。
+
+出现回归时，用[升级指南](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/upgrading.md)选择已知版本回退，保留用户偏好与自定义模板。

@@ -8,8 +8,10 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/pi-wechat-assistant"><img src="https://img.shields.io/npm/v/pi-wechat-assistant?color=blue" alt="npm version"></a>
-  <a href="https://github.com/shenjiecode/pi-wechat-assistant/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
+  <a href="https://github.com/shenjiecode/pi-wechat-assistant/actions/workflows/ci.yml"><img src="https://github.com/shenjiecode/pi-wechat-assistant/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/earendil-works/pi"><img src="https://img.shields.io/badge/pi-%3E%3D1.2.0-5B5FC7" alt="pi >=1.2.0"></a>
   <img src="https://img.shields.io/badge/node-%3E%3D20.3-339933" alt="Node.js >=20.3">
+  <a href="https://github.com/shenjiecode/pi-wechat-assistant/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
 </p>
 
 <p align="center">
@@ -26,16 +28,16 @@
 
 ### 支持什么
 
-- **文字、图片和文件**：向 pi 发送任务和图片，在微信接收回复和项目文件。
-- **适合微信阅读**：完整链接、代码分块，回复规则和收件回执均可自定义。
-- **可选桌面同步**：同步新的电脑端输入和 AI 回复，不重发历史记录。
-- **完成摘要**默认关闭。执行 `/wechat config summary on` 后，Pi 本轮结束时，微信收到一条简短的 AI 回复。[设置说明](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/settings.zh.md#完成摘要)
-- **会话交接**：在不同 pi 会话间切换当前微信连接。
-- **失败文本补发**：被微信拒收的 AI 文本回复会暂存；从微信再发一条消息后自动尝试补发，重启后仍可恢复。详见[范围与限制](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.zh.md#长任务做完了但结果没有收到)。
+- **文字、图片与文件**：在微信发送任务、语音转文字、图片与文件，接收 AI 回复和项目文件回传。
+- **适合手机阅读**：保留完整链接、代码分块输出，支持自定义回复模板与收件回执。
+- **可选桌面同步**：同步新的电脑端输入和 AI 回复到微信，不重放历史记录。
+- **完成摘要**：默认关闭；执行 `/wechat config summary on` 后，Pi 本轮结束时发送一条精简摘要。详见[设置说明](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/settings.zh.md#完成摘要)。
+- **会话交接与远程 `/new`**：在多个 pi 会话间无缝交接微信连接，也可在微信端直接新建空白对话。
+- **失败文本补发**：被微信拒收（`ret=-2`）的 AI 文本回复会持久化暂存，下次发消息时自动补发，重启或交接后仍可恢复。详见[常见问题](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.zh.md#长任务做完了但结果没有收到)。
 
 ### 安装与开始使用
 
-需要 Node.js **≥20.3.0**，以及已配置可用模型的 pi；同时满足已安装 pi 版本的 Node.js 要求。
+需要 pi **≥ 1.2.0**（`@earendil-works/pi-coding-agent`）及其要求的 Node.js 版本，并已配置可用模型。
 
 在系统终端执行：
 
@@ -63,7 +65,7 @@ pi install npm:pi-wechat-assistant
 
 微信里输入 `/help` 查看远程命令。**微信 `/stop` 取消 AI 任务；pi 中的 `/wechat stop` 停止桥接。**
 
-在微信发送 `/new` 可新建空白对话并恢复桥接，即使关闭了自动启动也可使用。旧历史保留在磁盘上，系统与项目指令仍然适用。需要 Pi 0.99.2 或更新版本。请先等待当前任务及待处理消息完成，并在收到成功确认后再发送新任务。详见[使用说明与失败恢复](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.zh.md#从微信新建空白对话)。
+在微信发送 `/new` 可新建空白对话并恢复桥接，即使关闭了自动启动也可使用。旧历史保留在磁盘上，系统与项目指令仍然适用。请先等待当前任务及待处理消息完成，并在收到成功确认后再发送新任务。详见[使用说明与失败恢复](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.zh.md#从微信新建空白对话)。
 
 电脑和 pi 需保持运行；仅接收绑定微信用户的消息，同一份本地账号状态只能由一个桥接持有。桌面同步默认关闭。纯文件消息只保存，需再发文字说明才会交给 AI 处理。发送限制和排障方法见常见问题。
 
@@ -77,7 +79,7 @@ pi install npm:pi-wechat-assistant
 
 ### 参与开发
 
-环境准备与检查命令见[贡献指南](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.zh.md)，代码组织见[架构说明](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/architecture.zh.md)，敏感问题请参阅[安全说明](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/SECURITY.zh.md)。
+环境准备与检查命令见[贡献指南](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.md)，代码组织见[架构说明](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/architecture.md)，敏感问题请参阅[安全说明](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/SECURITY.zh.md)。
 
 ---
 

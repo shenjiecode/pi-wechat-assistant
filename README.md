@@ -8,8 +8,10 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/pi-wechat-assistant"><img src="https://img.shields.io/npm/v/pi-wechat-assistant?color=blue" alt="npm version"></a>
-  <a href="https://github.com/shenjiecode/pi-wechat-assistant/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
+  <a href="https://github.com/shenjiecode/pi-wechat-assistant/actions/workflows/ci.yml"><img src="https://github.com/shenjiecode/pi-wechat-assistant/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/earendil-works/pi"><img src="https://img.shields.io/badge/pi-%3E%3D1.2.0-5B5FC7" alt="pi >=1.2.0"></a>
   <img src="https://img.shields.io/badge/node-%3E%3D20.3-339933" alt="Node.js >=20.3">
+  <a href="https://github.com/shenjiecode/pi-wechat-assistant/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
 </p>
 
 <p align="center">
@@ -26,16 +28,16 @@ A WeChat extension for [pi](https://github.com/earendil-works/pi): send tasks, r
 
 ### Features
 
-- **Text, images, and files:** send tasks and images to pi; receive replies and project files in WeChat.
-- **Readable replies:** full links, code chunks, and customizable reply rules and receipt notifications.
-- **Optional desktop sync:** mirror new desktop input and AI replies, without replaying history.
-- **Completion summaries** are off by default. Use `/wechat config summary on` to receive one short AI reply when Pi finishes a run. [Settings](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/settings.md#completion-summaries)
-- **Session handoff:** move the active WeChat connection between pi sessions.
-- **Deferred text replies:** AI text rejected by WeChat is saved and retried after your next WeChat message, including after a restart. See [scope and limits](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.md#the-task-finished-but-its-result-never-arrived).
+- **Text, images, and files:** send prompts, voice transcripts, images, and files from WeChat; receive replies and project files back.
+- **Readable on mobile:** preserves full links, splits fenced code cleanly, and supports custom reply templates and receipt notices.
+- **Optional desktop mirroring:** mirror new desktop input and AI replies to WeChat without replaying history.
+- **Completion summaries:** opt-in concise summary sent when Pi finishes a run (`/wechat config summary on`). See [Settings](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/settings.md#completion-summaries).
+- **Session handoff & remote `/new`:** move the active WeChat connection between pi sessions, or start a fresh conversation directly from WeChat.
+- **Deferred text replies:** AI replies rejected by WeChat (`ret=-2`) are durably queued and replayed on your next message, even across restarts or handoffs. See [FAQ](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.md#the-task-finished-but-its-result-never-arrived).
 
 ### Install and start
 
-Requires Node.js **≥20.3.0**, a working pi model configuration, and the Node.js version required by your installed pi host.
+Requires pi **≥ 1.2.0** (`@earendil-works/pi-coding-agent`) with the Node.js version it requires, and a working pi model configuration.
 
 Run in your system terminal:
 
@@ -63,7 +65,7 @@ Press Tab after `/wechat ` to complete subcommands and their arguments (for exam
 
 In WeChat, send `/help` for remote commands. **WeChat `/stop` cancels the AI task; pi `/wechat stop` stops the bridge.**
 
-Send `/new` in WeChat to start an empty conversation and reconnect the bridge, even with auto-start off. Old history stays on disk; system and project instructions still apply. Requires Pi 0.99.2 or newer. Wait until the current task and pending messages finish, then wait for confirmation before sending the next task. See [details and failure recovery](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.md#start-a-fresh-conversation-from-wechat).
+Send `/new` in WeChat to start an empty conversation and reconnect the bridge, even with auto-start off. Old history stays on disk; system and project instructions still apply. Wait until the current task and pending messages finish, then wait for confirmation before sending the next task. See [details and failure recovery](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.md#start-a-fresh-conversation-from-wechat).
 
 Keep the computer and pi running. Only the bound WeChat user is accepted, and one bridge can own the shared local account state at a time. Desktop mirroring is off by default. File-only messages are saved; follow with text to request processing. See the FAQ for sending limits and troubleshooting.
 
@@ -77,7 +79,7 @@ Keep the computer and pi running. Only the bound WeChat user is accepted, and on
 
 ### Contributing
 
-See [Contributing](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.md) for setup and checks, [Architecture](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/architecture.md) for code organization, and [Security](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/SECURITY.md) for sensitive reports.
+See [Contributing (中文)](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.md) for setup and checks, [Architecture (中文)](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/architecture.md) for code organization, and [Security](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/SECURITY.md) for private vulnerability reporting.
 
 ---
 

@@ -6,6 +6,8 @@ import { readdir, readFile } from 'node:fs/promises'
 
 const root = new URL('../', import.meta.url)
 const prefix = 'https://github.com/shenjiecode/pi-wechat-assistant/blob/main/'
+// Internal developer docs are maintained in Simplified Chinese only.
+const singleLanguage = new Set(['docs/architecture.md', 'docs/maintenance.md', 'docs/CONTRIBUTING.md', '.github/CONTRIBUTING.md'])
 const docs = (await readdir(new URL('docs/', root))).filter(file => file.endsWith('.md'))
 const community = (await readdir(new URL('.github/', root))).filter(file => /^(?:CONTRIBUTING|SECURITY|SUPPORT)(?:\.zh)?\.md$/.test(file))
 const pages = ['README.md', 'README.zh.md', ...docs.map(file => `docs/${file}`), ...community.map(file => `.github/${file}`)]
@@ -26,8 +28,10 @@ for (const page of pages) {
     assert(existsSync(target), `${page}: missing documentation target: ${link}`)
     checked++
   }
-  const translation = page.endsWith('.zh.md') ? page.replace(/\.zh\.md$/, '.md') : page.replace(/\.md$/, '.zh.md')
-  assert(content.includes(`](${prefix}${translation})`) || content.includes(`href="${prefix}${translation}"`), `${page}: missing language-switch link`)
+  if (!singleLanguage.has(page)) {
+    const translation = page.endsWith('.zh.md') ? page.replace(/\.zh\.md$/, '.md') : page.replace(/\.md$/, '.zh.md')
+    assert(content.includes(`](${prefix}${translation})`) || content.includes(`href="${prefix}${translation}"`), `${page}: missing language-switch link`)
+  }
 }
 
 console.log(`Documentation verified: ${pages.length} pages and ${checked} repository links.`)

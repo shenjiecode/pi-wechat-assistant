@@ -1,9 +1,5 @@
-# Contributing
+# 贡献指南
 
-English | [简体中文](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/.github/CONTRIBUTING.zh.md)
+环境准备、检查命令、文档约定、分支流程与发布步骤见[贡献指南](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.md)；代码组织见[架构说明](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/architecture.md)。
 
-Start with the [contribution guide](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.md) for setup, tests, branches and review expectations.
-
-Small fixes and documentation improvements are welcome. Discuss larger behavior changes in an issue first. Reports and contributions are welcome in any language; translation is not required.
-
-Use the [architecture guide](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/architecture.md) to find the right module and the [maintenance guide](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.md) to understand release checks.
+小修复与文档改进欢迎直接提交 PR；较大的行为变化请先在 issue 中讨论。任何语言均可，无需翻译。

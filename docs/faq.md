@@ -29,13 +29,13 @@ To avoid duplicates, a replay timeout, crash during sending, or failure to check
 
 ## I only receive a receipt or a model error
 
-A receipt confirms intake, not completion. Check the pi terminal for ongoing work or model/provider errors. Automatic retries and error notifications differ by Pi version; see [model error notifications](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/model-errors.md). Turning off receipt notifications does not disable AI replies or error notices.
+A receipt confirms intake, not completion. Check the pi terminal for ongoing work or model/provider errors. See [model error notifications](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/model-errors.md) for how failures are reported. Turning off receipt notifications does not disable AI replies or error notices.
 
 ## Start a fresh conversation from WeChat
 
-Send `/new` without arguments from the bound WeChat account. On Pi 0.99.2 or newer, it creates a new session in the same project and restarts the bridge without another QR login. Auto-start can remain off. The new conversation has no previous messages; system and project instructions still apply, and Pi selects the model and settings as it normally does for a new session. The old session history remains available on disk.
+Send `/new` without arguments from the bound WeChat account. It creates a new session in the same project and restarts the bridge without another QR login. Auto-start can remain off. The new conversation has no previous messages; system and project instructions still apply, and Pi selects the model and settings as it normally does for a new session. The old session history remains available on disk.
 
-The command refuses while Pi is busy or has queued input, or while the bridge has queued/submitted messages, downloads, or saved attachments awaiting instructions. Finish that work first, including sending instructions for pending attachments. Older Pi hosts refuse `/new` without sending it to the model. Session selection and switching are not provided.
+The command refuses while Pi is busy or has queued input, or while the bridge has queued/submitted messages, downloads, or saved attachments awaiting instructions. Finish that work first, including sending instructions for pending attachments. Session selection and switching are not provided.
 
 Wait for the success reply containing the new session ID before sending another task. The old bridge refuses additional messages it observes while replacement is pending; locally queued work is never moved to the new conversation. Messages delivered by WeChat after reconnection belong to the new session. A cancellation keeps the original session. If creation or bridge startup fails, the error does not confirm success; the new session may already exist. Check `/wechat status` in Pi and use `/wechat start` if needed. A Pi process exit or network failure can prevent the result reply from arriving.
 

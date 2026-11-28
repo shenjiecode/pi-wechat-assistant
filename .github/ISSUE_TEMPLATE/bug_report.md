@@ -15,14 +15,14 @@ Minimal steps and relevant settings.
 
 ### Environment and diagnostics
 
-- Extension version (installed package, not just the npm badge):
-- Pi version/package and Node.js version:
+- Extension version:
+- Pi version and Node.js version:
 - OS and installation source (npm / Git / local):
 - Interactive TUI or headless mode:
-- Other Pi sessions open? If relevant, `auto-start` and `handoff` settings:
-- Sanitized error and bridge-lock / last-send status from `/wechat status`:
+- Other Pi sessions open? (`auto-start` / `handoff` settings if relevant):
+- Sanitized error and `/wechat status` output:
 
-Please distinguish receiving a receipt from receiving the AI's final reply. Do not attach your state directory, login QR code, tokens or private conversation.
+Do not attach your state directory, login QR code, tokens, or private conversations.
 
 ---
 
@@ -38,11 +38,11 @@ Please distinguish receiving a receipt from receiving the AI's final reply. Do n
 
 ### 环境与诊断
 
-- 扩展版本（已安装包的版本，不只是 npm 徽章）：
-- Pi 版本及包名、Node.js 版本：
+- 扩展版本：
+- Pi 版本与 Node.js 版本：
 - 操作系统及安装来源（npm / Git / 本地）：
 - 交互式 TUI 还是无界面模式：
-- 是否打开其他 Pi 会话？如相关，请说明 `auto-start` 和 `handoff` 配置：
-- 脱敏报错，以及 `/wechat status` 中的桥接锁和最近发送状态：
+- 是否打开其他 Pi 会话？（如相关，请说明 `auto-start` / `handoff` 配置）：
+- 脱敏报错与 `/wechat status` 输出：
 
-请区分收到回执和收到 AI 最终回复。不要上传状态目录、登录二维码、令牌或私人对话。
+不要上传状态目录、登录二维码、令牌或私人对话。
