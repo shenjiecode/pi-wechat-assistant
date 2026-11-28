@@ -16,14 +16,12 @@ Start with the [project README](https://github.com/shenjiecode/pi-wechat-assista
 
 ## Development
 
-- [Remote /new acceptance, 2026-11-06](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/evaluations/2026-11-06-new-session-acceptance.md): candidate setup, completed automated checks and the maintainer acceptance record.
-- [Maintenance and acceptance](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.md): CI evidence, dependency updates, safe diagnostics and real-account release checks.
+- [Maintenance](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.md): automated checks, the minimal real-account release smoke test, debug logging and dependency updates.
 - [Architecture](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/architecture.md): directory responsibilities and runtime flow.
 - [Contributing](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/CONTRIBUTING.md): environment setup, checks, and contribution conventions.
 - [Security](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/SECURITY.md): handling sensitive information and reporting vulnerabilities.
 - [Changelog](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/CHANGELOG.md): release history.
-- [Project review, 2026-10-22](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/project-review-2026-10-22.md): dated findings, implemented improvements and remaining verification.
 
-English documentation uses `.md`; Simplified Chinese uses `.zh.md`. Each page links to its translation. Keep both versions in sync when updating documentation.
+User guides are maintained in English and Simplified Chinese (`.md` / `.zh.md`, each page linking to its translation; keep both in sync). Internal development docs (`architecture`, `maintenance`, `CONTRIBUTING`) are maintained in Simplified Chinese only.
 
 Use full GitHub URLs for documentation navigation, including the `docs/` path where applicable, so links also work when a page is displayed outside its source directory. Run `npm run check:docs` after editing links.

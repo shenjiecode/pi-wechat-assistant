@@ -2,7 +2,8 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 const files = vi.hoisted(() => ({ readFile: vi.fn(), writeFile: vi.fn(), mkdir: vi.fn(), chmod: vi.fn(), unlink: vi.fn(), open: vi.fn() }))
 vi.mock('node:fs/promises', () => files)
 import { inspectBridgeLock, describeBridgeLock, bridgeStartBlocker, bridgeLockMetadata, type BridgeLockState } from '../../src/bridge/bridge-lock.js'
-import { acquireLock, saveContextTokensThrottled, flushContextTokens } from '../../src/bridge/auth.js'
+import { acquireLock } from '../../src/bridge/auth.js'
+import { saveContextTokensThrottled, flushContextTokens } from '../../src/bridge/transport-state.js'
 
 describe('bridge lock diagnostics', () => {
   const owner = { pid: 123456, sessionId: 'other-session' }

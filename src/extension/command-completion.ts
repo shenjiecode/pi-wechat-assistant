@@ -3,8 +3,7 @@
 // ============================================================================
 //
 // 补全项结构刻意与宿主 AutocompleteItem 一致（value/label/description），
-// 这样不依赖任一版本的 pi-tui，也能通过 registerCommand 的
-// getArgumentCompletions 交给宿主渲染。
+// 通过 registerCommand 的 getArgumentCompletions 交给宿主渲染。
 //
 // 宿主的 applyCompletion 会把“整个参数文本”替换成 item.value，因此这里的
 // value 必须包含已完成的参数前缀，例如 `config ack on` 而不是 `on`。
@@ -38,6 +37,7 @@ const CONFIG_KEYS: ConfigKeySpec[] = [
   { name: 'image-ack-text', description: '自定义图片回执（留空恢复默认）' },
   { name: 'source', description: '微信来源标识与回复约定', values: ON_OFF },
   { name: 'bidirectional', description: '桌面与微信双向同步', values: ON_OFF },
+  { name: 'summary', description: '微信完成摘要', values: ON_OFF },
   { name: 'auto-start', description: '新会话自动启动桥接', values: ON_OFF },
   { name: 'handoff', description: '其他会话持锁时的接管方式', values: ['ask', 'auto'] },
   { name: 'remote-tools', description: '微信端 /tools 修改本机权限', values: ON_OFF },

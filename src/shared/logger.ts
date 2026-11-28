@@ -48,23 +48,14 @@ export function redactUrl(url: string | undefined): string {
   }
 }
 
-/** Prefer the outer code, then inspect at most three cause hops. Never stringify causes. */
+/** Prefer the outer code, then at most three cause hops. Never stringify causes. */
 function findErrorCode(error: object): string | undefined {
-  const seen = new Set<object>()
   let current: unknown = error
-  for (let depth = 0; depth <= 3; depth++) {
-    if (!current || typeof current !== 'object' || seen.has(current)) return undefined
-    seen.add(current)
-    try {
-      const code: unknown = (current as { code?: unknown }).code
-      if (typeof code === 'number' && Number.isFinite(code)) return String(code)
-      if (typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,39}$/.test(code)) return code
-      if (depth === 3) return undefined
-      current = (current as { cause?: unknown }).cause
-    } catch {
-      // A custom getter must not turn diagnostic formatting into another failure.
-      return undefined
-    }
+  for (let depth = 0; current && typeof current === 'object' && depth <= 3; depth++) {
+    const code = (current as { code?: unknown }).code
+    if (typeof code === 'number' && Number.isFinite(code)) return String(code)
+    if (typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,39}$/.test(code)) return code
+    current = (current as { cause?: unknown }).cause
   }
   return undefined
 }

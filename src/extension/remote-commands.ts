@@ -2,37 +2,70 @@
 // 微信远程命令处理
 // ============================================================================
 
-import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from '@mariozechner/pi-coding-agent'
 import { debugLog, debugError } from '../shared/logger.js'
 import { formatError } from '../shared/utils.js'
-import { getImageMaxBytes, getImageBatchWaitMs } from '../bridge/queue.js'
 import { WeixinClient } from '../wechat/client.js'
-import type { OutboxStatus } from '../bridge/outbox.js'
+import type { BridgeRuntime } from './runtime.js'
+import { resolveConfig } from '../bridge/config-values.js'
 
-type Ctx = ExtensionContext | ExtensionCommandContext
-
-export interface RemoteCommandDeps {
-  pi: ExtensionAPI
-  getCtx: () => Ctx | null
-  client: () => WeixinClient | null
-  queueLength: () => number
-  outboxStatus?: () => OutboxStatus
-  newSession?: (args: string, userId: string, ctx: Ctx) => string | null
-  /** 微信端 /tools 是否已放行（由 TUI 端 /wechat remotetools 控制，默认关闭） */
-  isRemoteToolsEnabled: () => Promise<boolean>
+interface BranchMessage {
+  role?: string
+  content?: Array<{ type?: string }>
+  usage?: { input?: number; output?: number; cacheRead?: number; cost?: { total?: number } }
 }
 
-type RemoteCommandFn = (args: string, userId: string, client: WeixinClient, deps: RemoteCommandDeps) => Promise<string | null>
+interface BranchEntry {
+  type?: string
+  message?: BranchMessage
+}
+
+interface SessionStats {
+  messageCount: number
+  userMsgs: number
+  assistantMsgs: number
+  toolCalls: number
+  toolResults: number
+  totalInput: number
+  totalOutput: number
+  totalCacheRead: number
+  totalCost: number
+}
+
+/** Shared branch traversal for the /status and /session remote commands. */
+function collectSessionStats(entries: readonly BranchEntry[]): SessionStats {
+  const stats: SessionStats = {
+    messageCount: 0, userMsgs: 0, assistantMsgs: 0, toolCalls: 0, toolResults: 0,
+    totalInput: 0, totalOutput: 0, totalCacheRead: 0, totalCost: 0,
+  }
+  for (const entry of entries) {
+    if (entry.type !== 'message') continue
+    stats.messageCount++
+    const msg = entry.message
+    if (!msg) continue
+    if (msg.role === 'user') stats.userMsgs++
+    else if (msg.role === 'assistant') {
+      stats.assistantMsgs++
+      stats.totalInput += msg.usage?.input ?? 0
+      stats.totalOutput += msg.usage?.output ?? 0
+      stats.totalCacheRead += msg.usage?.cacheRead ?? 0
+      stats.totalCost += msg.usage?.cost?.total ?? 0
+      stats.toolCalls += (msg.content ?? []).filter(part => part.type === 'toolCall').length
+    } else if (msg.role === 'toolResult') stats.toolResults++
+  }
+  return stats
+}
+
+type RemoteCommandFn = (args: string, userId: string, client: WeixinClient, rt: BridgeRuntime) => Promise<string | null>
 
 const commands: Record<string, RemoteCommandFn> = {
-  async new(args, userId, _client, deps) {
-    const ctx = deps.getCtx()
+  async new(args, userId, _client, rt) {
+    const ctx = rt.latestCtx
     if (!ctx) return '❌ 会话上下文尚未就绪，请稍后再试'
-    return deps.newSession ? deps.newSession(args, userId, ctx) : '❌ 当前 Pi 版本不支持远程 /new'
+    return rt.newSession.request(args, userId, ctx)
   },
 
-  async model(args, userId, client, deps) {
-    const ctx = deps.getCtx()
+  async model(args, userId, client, rt) {
+    const ctx = rt.latestCtx
     if (!ctx) return '❌ 会话上下文尚未就绪，请稍后再试'
     const registry = ctx.modelRegistry
     if (!args) {
@@ -58,44 +91,44 @@ const commands: Record<string, RemoteCommandFn> = {
       }
     }
     if (!model) return `❌ 未找到模型: ${args}\n输入 /model 查看可用列表`
-    const success = await deps.pi.setModel(model)
+    const success = await rt.pi.setModel(model)
     return success
       ? `✅ 已切换模型: ${model.provider}/${model.id}`
       : `❌ 切换失败: ${model.provider}/${model.id} 没有可用的 API key`
   },
 
-  async thinking(args, _userId, _client, deps) {
+  async thinking(args, _userId, _client, rt) {
     const valid = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const
     type ThinkingLevel = typeof valid[number]
-    if (!args) return `当前 thinking level: ${deps.pi.getThinkingLevel()}\n可选: ${valid.join(', ')}`
+    if (!args) return `当前 thinking level: ${rt.pi.getThinkingLevel()}\n可选: ${valid.join(', ')}`
     if (valid.includes(args as ThinkingLevel)) {
-      deps.pi.setThinkingLevel(args as ThinkingLevel)
+      rt.pi.setThinkingLevel(args as ThinkingLevel)
       return `✅ thinking level 已设为: ${args}`
     }
     return `❌ 无效 level: ${args}\n可选: ${valid.join(', ')}`
   },
 
-  async tools(args, _userId, _client, deps) {
-    if (!(await deps.isRemoteToolsEnabled())) {
+  async tools(args, _userId, _client, rt) {
+    if (!(await rt.isRemoteToolsEnabled())) {
       return '🔒 出于安全考虑，微信端 /tools 默认禁用（它可修改本机工具权限）\n如需开启，请在电脑端 TUI 执行 /wechat remotetools on'
     }
     if (!args) {
-      const active = deps.pi.getActiveTools()
-      const all = deps.pi.getAllTools().map(t => t.name)
+      const active = rt.pi.getActiveTools()
+      const all = rt.pi.getAllTools().map(t => t.name)
       const lines = ['活跃工具:', ...active.map(t => `  ✅ ${t}`), '', '全部工具:']
       for (const t of all) lines.push(`  ${active.includes(t) ? '✅' : '⬜'} ${t}`)
       return lines.join('\n')
     }
     const toolNames = args.split(/[,\s]+/).filter(Boolean)
-    const allNames = deps.pi.getAllTools().map(t => t.name)
+    const allNames = rt.pi.getAllTools().map(t => t.name)
     const invalid = toolNames.filter(t => !allNames.includes(t))
     if (invalid.length > 0) return `❌ 未知工具: ${invalid.join(', ')}\n输入 /tools 查看全部`
-    deps.pi.setActiveTools(toolNames.filter(t => allNames.includes(t)))
+    rt.pi.setActiveTools(toolNames.filter(t => allNames.includes(t)))
     return `✅ 活跃工具已设为: ${toolNames.filter(t => allNames.includes(t)).join(', ')}`
   },
 
-  async compact(_args, userId, client, deps) {
-    const ctx = deps.getCtx()
+  async compact(_args, userId, client, rt) {
+    const ctx = rt.latestCtx
     if (!ctx) return '❌ 会话上下文尚未就绪'
     ctx.compact({
       onComplete: () => { void client.sendText(userId, '✅ 上下文压缩完成') },
@@ -104,54 +137,38 @@ const commands: Record<string, RemoteCommandFn> = {
     return '⏳ 正在压缩上下文...'
   },
 
-  async stop(_args, _userId, _client, deps) {
-    const ctx = deps.getCtx()
+  async stop(_args, _userId, _client, rt) {
+    const ctx = rt.latestCtx
     if (!ctx) return '❌ 会话上下文尚未就绪'
     if (ctx.isIdle()) return '当前没有在执行任务'
     ctx.abort()
     return '✅ 已发送停止信号'
   },
 
-  async status(_args, _userId, _client, deps) {
-    const ctx = deps.getCtx()
+  async status(_args, _userId, _client, rt) {
+    const ctx = rt.latestCtx
     if (!ctx) return '❌ 会话上下文尚未就绪'
     const lines: string[] = []
     if (ctx.model) lines.push(`模型: ${ctx.model.provider}/${ctx.model.id}`)
-    lines.push(`Thinking: ${deps.pi.getThinkingLevel()}`)
-    lines.push(`工具数: ${deps.pi.getActiveTools().length}`)
-    lines.push(`排队消息: ${deps.queueLength()}`)
-    const outbox = deps.outboxStatus?.() ?? { pending: 0, uncertain: 0 }
+    lines.push(`Thinking: ${rt.pi.getThinkingLevel()}`)
+    lines.push(`工具数: ${rt.pi.getActiveTools().length}`)
+    lines.push(`排队消息: ${rt.queue.pending}`)
+    const outbox = rt.outboxStatus()
     lines.push(`待补发回复: ${outbox.pending}`)
     if (outbox.uncertain) lines.push(`送达待确认: ${outbox.uncertain}（不自动重发，请在 Pi 会话中核对）`)
 
-    const branch = ctx.sessionManager.getBranch()
+    const branch = ctx.sessionManager.getBranch() as readonly BranchEntry[]
     let startIndex = 0
     for (let i = branch.length - 1; i >= 0; i--) {
       if (branch[i].type === 'compaction') { startIndex = i + 1; break }
     }
-    let userMsgs = 0, assistantMsgs = 0, toolCalls = 0, toolResults = 0
-    let totalInput = 0, totalOutput = 0, totalCacheRead = 0, totalCost = 0
-    for (let i = startIndex; i < branch.length; i++) {
-      const entry = branch[i]
-      if (entry.type !== 'message') continue
-      const msg = (entry as { message?: { role?: string; content?: Array<{ type: string }>; usage?: { input?: number; output?: number; cacheRead?: number; cost?: { total?: number } } } }).message
-      if (!msg) continue
-      if (msg.role === 'user') userMsgs++
-      else if (msg.role === 'assistant') {
-        assistantMsgs++
-        totalInput += msg.usage?.input ?? 0
-        totalOutput += msg.usage?.output ?? 0
-        totalCacheRead += msg.usage?.cacheRead ?? 0
-        totalCost += msg.usage?.cost?.total ?? 0
-        toolCalls += (msg.content ?? []).filter((c: { type: string }) => c.type === 'toolCall').length
-      } else if (msg.role === 'toolResult') toolResults++
-    }
-    const totalMsgs = userMsgs + assistantMsgs + toolResults
+    const stats = collectSessionStats(branch.slice(startIndex))
+    const totalMsgs = stats.userMsgs + stats.assistantMsgs + stats.toolResults
     if (totalMsgs > 0) {
-      lines.push(`消息: ${userMsgs}u / ${assistantMsgs}a / ${toolCalls}tc / ${toolResults}tr = ${totalMsgs}`)
-      lines.push(`Token: ${(totalInput + totalOutput + totalCacheRead).toLocaleString()} (in ${totalInput.toLocaleString()} + out ${totalOutput.toLocaleString()} + cache ${totalCacheRead.toLocaleString()})`)
+      lines.push(`消息: ${stats.userMsgs}u / ${stats.assistantMsgs}a / ${stats.toolCalls}tc / ${stats.toolResults}tr = ${totalMsgs}`)
+      lines.push(`Token: ${(stats.totalInput + stats.totalOutput + stats.totalCacheRead).toLocaleString()} (in ${stats.totalInput.toLocaleString()} + out ${stats.totalOutput.toLocaleString()} + cache ${stats.totalCacheRead.toLocaleString()})`)
     }
-    if (totalCost > 0) lines.push(`费用: $${totalCost.toFixed(4)}`)
+    if (stats.totalCost > 0) lines.push(`费用: $${stats.totalCost.toFixed(4)}`)
     if (startIndex > 0) lines.push('(数据从最近一次压缩后开始计算)')
 
     const usage = ctx.getContextUsage()
@@ -160,7 +177,7 @@ const commands: Record<string, RemoteCommandFn> = {
         const pct = usage.percent != null ? ` (${usage.percent}%)` : ''
         lines.push(`上下文: ${usage.tokens.toLocaleString()} / ${usage.contextWindow.toLocaleString()} tokens${pct}`)
       } else {
-        const estimated = totalInput + totalOutput + totalCacheRead
+        const estimated = stats.totalInput + stats.totalOutput + stats.totalCacheRead
         if (estimated > 0) {
           lines.push(`上下文: ~${estimated.toLocaleString()} / ${usage.contextWindow.toLocaleString()} tokens (压缩后估算)`)
         } else {
@@ -169,31 +186,33 @@ const commands: Record<string, RemoteCommandFn> = {
       }
     }
 
-    lines.push(`图片等待: ${getImageBatchWaitMs() / 1000}s | 上限: ${Math.round(getImageMaxBytes() / 1024 / 1024)}MB`)
+    const config = resolveConfig()
+    lines.push(`图片等待: ${config.imageBatchWaitMs / 1000}s | 上限: ${Math.round(config.imageMaxBytes / 1024 / 1024)}MB`)
     return lines.join('\n')
   },
 
-  async config(_args, _userId, _client, _deps) {
+  async config(_args, _userId, _client, _rt) {
+    const config = resolveConfig()
     return [
-      `图片合并等待: ${getImageBatchWaitMs()}ms`,
-      `图片上限: ${getImageMaxBytes()} bytes (${Math.round(getImageMaxBytes() / 1024 / 1024)}MB)`,
+      `图片合并等待: ${config.imageBatchWaitMs}ms`,
+      `图片上限: ${config.imageMaxBytes} bytes (${Math.round(config.imageMaxBytes / 1024 / 1024)}MB)`,
       '可在 config.json 或环境变量中调整：',
       'PI_WECHAT_IMAGE_BATCH_WAIT_MS',
       'PI_WECHAT_IMAGE_MAX_BYTES',
     ].join('\n')
   },
 
-  async name(args, _userId, _client, deps) {
+  async name(args, _userId, _client, rt) {
     if (!args) {
-      const current = deps.pi.getSessionName()
+      const current = rt.pi.getSessionName()
       return current ? `当前会话名称: ${current}\n输入 /name <新名称> 来修改` : '当前会话未命名\n输入 /name <名称> 来设置'
     }
-    deps.pi.setSessionName(args)
+    rt.pi.setSessionName(args)
     return `✅ 会话名称已设为: ${args}`
   },
 
-  async session(_args, _userId, _client, deps) {
-    const ctx = deps.getCtx()
+  async session(_args, _userId, _client, rt) {
+    const ctx = rt.latestCtx
     if (!ctx) return '❌ 会话上下文尚未就绪'
     const sm = ctx.sessionManager
     const lines: string[] = []
@@ -204,60 +223,32 @@ const commands: Record<string, RemoteCommandFn> = {
     }
     lines.push(`会话 ID: ${sm.getSessionId()}`)
 
-    const branch = sm.getBranch()
-    let userCount = 0, assistantCount = 0, toolCallCount = 0, toolResultCount = 0, messageCount = 0
-    let totalInput = 0, totalOutput = 0, totalCacheRead = 0, totalCost = 0
-
-    for (const entry of branch) {
-      if (entry.type !== 'message') continue
-      messageCount++
-      const msg = (entry as { message?: { role?: string; content?: unknown[]; usage?: { input?: number; output?: number; cacheRead?: number; cost?: { total?: number } } } }).message
-      if (!msg) continue
-      switch (msg.role) {
-        case 'user': userCount++; break
-        case 'assistant': {
-          assistantCount++
-          if (Array.isArray(msg.content)) {
-            for (const part of msg.content) {
-              if ((part as { type?: string }).type === 'toolCall') toolCallCount++
-            }
-          }
-          if (msg.usage) {
-            totalInput += msg.usage.input ?? 0
-            totalOutput += msg.usage.output ?? 0
-            totalCacheRead += msg.usage.cacheRead ?? 0
-            totalCost += msg.usage.cost?.total ?? 0
-          }
-          break
-        }
-        case 'toolResult': toolResultCount++; break
-      }
-    }
+    const stats = collectSessionStats(sm.getBranch() as readonly BranchEntry[])
     lines.push('')
     lines.push('Messages')
-    lines.push(` User: ${userCount}`)
-    lines.push(` Assistant: ${assistantCount}`)
-    lines.push(` Tool Calls: ${toolCallCount}`)
-    lines.push(` Tool Results: ${toolResultCount}`)
-    lines.push(` Total: ${messageCount}`)
-    if (totalInput > 0 || totalOutput > 0) {
-      const totalTokens = totalInput + totalOutput + totalCacheRead
+    lines.push(` User: ${stats.userMsgs}`)
+    lines.push(` Assistant: ${stats.assistantMsgs}`)
+    lines.push(` Tool Calls: ${stats.toolCalls}`)
+    lines.push(` Tool Results: ${stats.toolResults}`)
+    lines.push(` Total: ${stats.messageCount}`)
+    if (stats.totalInput > 0 || stats.totalOutput > 0) {
+      const totalTokens = stats.totalInput + stats.totalOutput + stats.totalCacheRead
       lines.push('')
       lines.push('Tokens')
-      lines.push(` Input: ${totalInput.toLocaleString()}`)
-      lines.push(` Output: ${totalOutput.toLocaleString()}`)
-      if (totalCacheRead > 0) lines.push(` Cache Read: ${totalCacheRead.toLocaleString()}`)
+      lines.push(` Input: ${stats.totalInput.toLocaleString()}`)
+      lines.push(` Output: ${stats.totalOutput.toLocaleString()}`)
+      if (stats.totalCacheRead > 0) lines.push(` Cache Read: ${stats.totalCacheRead.toLocaleString()}`)
       lines.push(` Total: ${totalTokens.toLocaleString()}`)
     }
-    if (totalCost > 0) {
+    if (stats.totalCost > 0) {
       lines.push('')
       lines.push('Cost')
-      lines.push(` Total: $${totalCost.toFixed(3)}`)
+      lines.push(` Total: $${stats.totalCost.toFixed(3)}`)
     }
     return lines.join('\n')
   },
 
-  async help(_args, _userId, _client, _deps) {
+  async help(_args, _userId, _client, _rt) {
     return [
       '📋 微信远程命令:',
       '',
@@ -280,7 +271,7 @@ export async function handleRemoteCommand(
   text: string,
   userId: string,
   client: WeixinClient,
-  deps: RemoteCommandDeps,
+  rt: BridgeRuntime,
 ): Promise<boolean> {
   const trimmed = text.trim()
   if (!trimmed.startsWith('/')) return false
@@ -289,7 +280,7 @@ export async function handleRemoteCommand(
   const handler = commands[cmd]
   if (!handler) return false
   try {
-    const reply = await handler(args, userId, client, deps)
+    const reply = await handler(args, userId, client, rt)
     if (reply !== null) await client.sendText(userId, reply)
   } catch (err) {
     debugLog(`远程命令 /${cmd} 执行失败: ${debugError(err)}`)

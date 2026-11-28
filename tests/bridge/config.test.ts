@@ -43,9 +43,7 @@ describe('configuration persistence compatibility', () => {
     vi.resetModules()
     const restarted = await import('../../src/bridge/config.js')
     expect(await restarted.loadConfig()).toEqual({ ...legacy, imageMaxBytes: 1048576 })
-    const auth = await import('../../src/bridge/auth.js')
-    expect(auth.getConfigCache()).toBe(restarted.getConfigCache())
-    expect(auth.saveConfig).toBe(restarted.saveConfig)
+    expect(restarted.getConfigCache()).toEqual({ ...legacy, imageMaxBytes: 1048576 })
   })
 
   it('keeps process caching and updates it only after a successful write', async () => {

@@ -1,21 +1,3 @@
-import type { ExtensionContext } from '@mariozechner/pi-coding-agent'
-
-/** Capability shared by the settled-event hosts in our published API matrix. */
-export function hasSettledEvents(ctx: ExtensionContext): boolean {
-  return typeof (ctx as ExtensionContext & { isProjectTrusted?: unknown }).isProjectTrusted === 'function'
-}
-
-export type FailureNoticeMode = 'attempt' | 'settled' | 'boundary'
-
-/** Public API signatures, checked together against the published version matrix.
- * Boundary-capable hosts return an unsubscribe function from on(); 0.84 returns void.
- * Do not learn capabilities from whether a previous request happened to emit an event.
- */
-export function failureNoticeMode(ctx: ExtensionContext, boundarySubscription: unknown): FailureNoticeMode {
-  if (!hasSettledEvents(ctx)) return 'attempt'
-  return typeof boundarySubscription === 'function' ? 'boundary' : 'settled'
-}
-
 /** Provider diagnostics only; never infer failure from assistant/tool text. */
 export function summarizeModelError(value: unknown): string {
   if (typeof value !== 'string' || !value.trim()) return '模型服务未提供错误详情，请在 Pi 中查看。'
@@ -60,14 +42,11 @@ export class ModelFailureNotice {
     this.boundaryError = outcome === 'error'
   }
 
-  take(mode: FailureNoticeMode, aborted = false): string | null {
-    if (!this.error || this.notified || aborted || this.signal?.aborted) return null
-    if (mode === 'boundary' && !this.boundaryError) return null
+  /** One notice per request, only when Pi settles with an error boundary outcome. */
+  take(aborted = false): string | null {
+    if (!this.error || this.notified || aborted || !this.boundaryError || this.signal?.aborted) return null
     // Claim before awaiting transport; do not duplicate on a repeated event or ambiguous send failure.
     this.notified = true
-    if (mode === 'settled') return `⚠️ 此前一次模型请求失败：${this.error}`
-    return mode === 'boundary'
-      ? `⚠️ 模型请求失败：${this.error}\n本次自动处理已结束，请检查后重试。`
-      : `⚠️ 本次模型请求失败：${this.error}\nPi 可能自动重试；这不表示整个任务已停止。`
+    return `⚠️ 模型请求失败：${this.error}\n本次自动处理已结束，请检查后重试。`
   }
 }

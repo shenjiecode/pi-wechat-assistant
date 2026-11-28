@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: FAQ & Troubleshooting / 常见问题与排障
+    url: https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/faq.zh.md
+    about: Check common login, reply, handoff, and file issues first / 先查看登录、回复、交接与文件等常见问题
+  - name: Security Vulnerability / 安全漏洞私密报告
+    url: https://github.com/shenjiecode/pi-wechat-assistant/security/advisories/new
+    about: Report security issues privately instead of opening a public issue / 通过私密通道报告安全问题，请勿公开提交

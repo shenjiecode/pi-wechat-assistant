@@ -6,7 +6,7 @@ function setup() {
   const sendUserMessage = vi.fn()
   const reply = vi.fn(async () => {})
   const deps = {
-    supported: vi.fn(() => true), pending: vi.fn(() => false), running: vi.fn(() => true),
+    pending: vi.fn(() => false), running: vi.fn(() => true),
     start: vi.fn(async () => {}), reply,
   }
   const ctx = {
@@ -22,9 +22,8 @@ function setup() {
 }
 
 describe('remote new session', () => {
-  it.each(['unsupported', 'stopped', 'busy', 'Pi queue', 'bridge queue'] as const)('refuses %s without dispatch', reason => {
+  it.each(['stopped', 'busy', 'Pi queue', 'bridge queue'] as const)('refuses %s without dispatch', reason => {
     const s = setup()
-    if (reason === 'unsupported') s.deps.supported.mockReturnValue(false)
     if (reason === 'stopped') s.deps.running.mockReturnValue(false)
     if (reason === 'busy') s.ctx.isIdle.mockReturnValue(false)
     if (reason === 'Pi queue') s.ctx.hasPendingMessages.mockReturnValue(true)

@@ -9,6 +9,7 @@ Run `/wechat config` to open host-native selection and input dialogs. Each row i
 | Common | Receipt notifications | On | Send text/image receipt confirmations. Off suppresses both; AI replies, file-save results, and errors are unaffected. |
 | Common | Text / image receipt content | Built-in messages | Customize each separately; blank input restores the default, Esc cancels. |
 | Common | Bidirectional sync | Off | Forward new desktop input and AI replies to WeChat. Off keeps only replies to WeChat requests. |
+| Common | Completion summaries | Off | Send one short AI reply after Pi finishes processing a run. |
 | Common | Auto-start WeChat bridge | Off | Attempt to connect WeChat when a pi session opens. In the TUI, a bridge held by another session follows the handoff mode below (ask or auto); headless modes report the lock instead of asking. Enabling it offers to switch the handoff mode to Auto. Does not start/stop the current bridge. |
 | Common | Bridge handoff mode | Ask | When another session holds a cooperative-handoff bridge (0.4.4+), Ask shows the takeover dialog and Auto requests the handoff directly. Headless modes never auto-take-over. |
 | Common | WeChat message tag and formatting | On | One switch for the `[微信]` marker, WeChat-friendly reply formatting, and the local question-tool guard. Waits for an active task to finish before changing. |
@@ -22,6 +23,16 @@ Keep custom source-marker text and the blocked local question-tool names in `con
 Configuration is stored at `~/.pi/agent/wechat-assistant/config.json`. Saves affect this process and future sessions. Already-open processes cache their settings and do not reload another process's changes automatically; reload the extension or reopen the session before editing settings from another process. Image environment variables remain fallbacks when no corresponding JSON setting exists; the menu shows effective image values. There is no new cross-process settings synchronization in this change.
 
 Existing commands remain supported. Additional explicit commands are `/wechat config auto-start on|off`, `/wechat config handoff ask|auto`, and `/wechat config remote-tools on|off`. For reply files and system-prompt behavior see [WeChat rules](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/wechat-source.md).
+
+## Completion summaries
+
+Use `/wechat config summary on` to enable summaries or `/wechat config summary off` for incremental AI replies. The common settings menu offers the same switch. The choice applies to the next user request. New and upgraded installations default to off. `/wechat config show` displays the saved preference and any fallback for the current Pi host.
+
+Pi can retry, compact the conversation, or continue with follow-up work before settling. The bridge reads the outcome at `agent_before_settle` and sends at `agent_settled`. Hosts that lack either capability use incremental replies. [Pi event lifecycle](https://github.com/earendil-works/pi/blob/v1.6.0/packages/coding-agent/docs/extensions.md#lifecycle-overview)
+
+The notification includes the task and its latest eligible final reply. With the WeChat reply rules enabled, Pi can mark its opening paragraph as a result, task failure, or question. WeChat gets the marked result or the question and its choices. For unmarked answers it gets the full short reply or an excerpt from the beginning and end of a long one. Full details stay in Pi. The bridge makes no additional model request. Pi reports execution errors and cancellation directly. Desktop replies follow the bidirectional sync setting.
+
+Receipts, explicit file transfers and command replies have their own delivery paths. Turn off ordinary receipt messages with `/wechat config ack off` if desired. A summary rejected with `ret=-2` goes to the existing outbox for replay after new WeChat activity.
 
 ## Receipt notifications
 

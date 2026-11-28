@@ -1,7 +1,7 @@
 import * as path from 'node:path'
 import { getStateDir, readJsonFile, writeJsonFile } from './state-storage.js'
 
-const CONFIG_FILE = path.join(getStateDir(), 'config.json')
+function configFile(): string { return path.join(getStateDir(), 'config.json') }
 
 export interface BridgeConfig {
   autoStart?: boolean
@@ -14,6 +14,8 @@ export interface BridgeConfig {
   handoff?: 'ask' | 'auto'
   /** 默认同步 TUI 输入和 AI 回复到微信；关闭后仅转发微信任务回复。 */
   bidirectionalSync?: boolean
+  /** Send one completion summary after Pi settles. Unset keeps incremental replies. */
+  completionSummary?: boolean
   /** 是否允许微信端 /tools 命令修改本机工具权限（安全考虑，默认关闭） */
   allowRemoteTools?: boolean
   /** 来源标识与微信回复约定共用此开关，默认开启。 */
@@ -31,19 +33,24 @@ export interface BridgeConfig {
 
 /** 内存缓存，供同步读取使用（由异步 loadConfig / saveConfig 维护）。不重写未知字段或补写默认值。 */
 let _configCache: BridgeConfig | null = null
+let _configCachePath: string | null = null
 
 export function getConfigCache(): BridgeConfig {
-  return _configCache ?? {}
+  return _configCache && _configCachePath === configFile() ? _configCache : {}
 }
 
 export async function loadConfig(): Promise<BridgeConfig> {
-  if (_configCache) return _configCache
-  const data = await readJsonFile<BridgeConfig>(CONFIG_FILE)
+  const file = configFile()
+  if (_configCache && _configCachePath === file) return _configCache
+  const data = await readJsonFile<BridgeConfig>(file)
   _configCache = data ?? {}
+  _configCachePath = file
   return _configCache
 }
 
 export async function saveConfig(config: BridgeConfig): Promise<void> {
-  await writeJsonFile(CONFIG_FILE, config)
+  const file = configFile()
+  await writeJsonFile(file, config)
   _configCache = config
+  _configCachePath = file
 }

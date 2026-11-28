@@ -1,11 +1,10 @@
-import type { ExtensionAPI, ExtensionCommandContext } from '@mariozechner/pi-coding-agent'
+import type { ExtensionAPI, ExtensionCommandContext } from '@earendil-works/pi-coding-agent'
 import { formatError } from '../shared/utils.js'
 
 const COMMAND = 'wechat-new-session'
 const COMMAND_OPTIONS = { expandPromptTemplates: true, deliverAs: 'followUp' as const }
 
 interface NewSessionDeps {
-  supported: () => boolean
   pending: () => boolean
   running: () => boolean
   start: (ctx: ExtensionCommandContext) => Promise<void>
@@ -13,11 +12,15 @@ interface NewSessionDeps {
   reply: (userId: string, text: string) => Promise<void>
 }
 
-export function registerNewSession(pi: ExtensionAPI, deps: NewSessionDeps) {
+export interface NewSessionController {
+  get changing(): boolean
+  request(args: string, userId: string, ctx: Pick<ExtensionCommandContext, 'isIdle' | 'hasPendingMessages' | 'sessionManager'>): string | null
+}
+
+export function registerNewSession(pi: ExtensionAPI, deps: NewSessionDeps): NewSessionController {
   let changing = false
 
   function blocker(ctx: { isIdle(): boolean; hasPendingMessages(): boolean }): string | null {
-    if (!deps.supported()) return '❌ 当前 Pi 版本不支持远程 /new，请升级至 Pi 0.99.2 或更新版本'
     if (!deps.running()) return '❌ 微信桥接未运行，无法远程新建会话'
     if (!ctx.isIdle()) return '❌ 当前任务尚未结束，请等待完成后再发送 /new'
     if (ctx.hasPendingMessages() || deps.pending()) return '❌ 仍有待处理消息，请等待处理完成后再发送 /new'

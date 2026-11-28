@@ -14,7 +14,7 @@
 
 ## 验证边界
 
-日常使用应选择仍在维护的最新 Pi 宿主。历史 API 兼容性检查不代表旧宿主没有安全公告。本扩展的生产依赖与开发/宿主依赖分别审计，见[维护指南](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.zh.md)。
+日常使用应选择仍在维护的最新 Pi 宿主；API 兼容性检查不代表宿主没有安全公告。本扩展的生产依赖与开发/宿主依赖分别审计，见[维护指南](https://github.com/shenjiecode/pi-wechat-assistant/blob/main/docs/maintenance.md)。
 
 调试日志需要主动开启。当前调用点避免记录消息正文、附件密钥和完整报错，日志轮转保留一个备份；升级不会清洗旧版本留下的日志。分享前仍应检查片段；`/wechat status`、宿主和服务商输出属于其他来源，仍可能带有私人信息。
 

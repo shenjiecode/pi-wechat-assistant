@@ -7,7 +7,7 @@
  * No credentials are edited. Only this exact test text is intercepted; inbound
  * polling, typing, receipts, media, and all other requests use the real fetch.
  */
-import type { ExtensionAPI } from '@mariozechner/pi-coding-agent'
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import wechatAssistant from '../index.js'
 
 export const TEST_REPLY = '补发测试53'

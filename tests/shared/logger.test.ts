@@ -85,12 +85,12 @@ describe('diagnostic metadata', () => {
     expect(debugError({ cause: atLimit })).toBe('Error')
   })
 
-  it('does not evaluate messages or fail on an unreadable cause', async () => {
+  it('does not evaluate private message text', async () => {
     const { debugError } = await import('../../src/shared/logger.js')
     const error = {
       name: 'TypeError',
       get message() { throw new Error('must not read private messages') },
-      get cause() { throw new Error('unreadable cause') },
+      cause: new Error('plain cause'),
     }
     expect(debugError(error)).toBe('TypeError')
   })

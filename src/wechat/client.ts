@@ -33,8 +33,6 @@ import {
 } from '../bridge/transport-state.js'
 import {
   CDN_BASE,
-  STREAM_ENCRYPTION_THRESHOLD,
-  LONG_POLL_TIMEOUT_MS,
 } from '../shared/constants.js'
 
 export class SessionExpiredError extends Error {
@@ -72,7 +70,6 @@ async function encryptFile(
   const rawMd5 = createHash('md5').update(fileBuffer).digest('hex')
   const aesKey = randomBytes(16).toString('hex')
   const cipher = createCipheriv('aes-128-ecb', Buffer.from(aesKey, 'hex'), null)
-  // 对大文件使用 Buffer.concat 一次性创建仍会双倍内存，但 50MB 上限在可接受范围
   const encryptedBuffer = Buffer.concat([cipher.update(fileBuffer), cipher.final()])
   return { rawSize, rawMd5, aesKey, encryptedBuffer }
 }
@@ -245,10 +242,6 @@ export class WeixinClient {
     } finally {
       this.onStatusChange?.()
     }
-  }
-
-  getKnownUsers(): string[] {
-    return Array.from(this.contextTokens.keys())
   }
 
   // --- 生命周期 ---

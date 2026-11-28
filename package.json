@@ -1,6 +1,6 @@
 {
   "name": "pi-wechat-assistant",
-  "version": "0.6.7",
+  "version": "1.0.0",
   "type": "module",
   "description": "在微信里继续 pi 对话：双向同步、图片与文件、会话交接。 Continue pi conversations from WeChat.",
   "main": "index.ts",
@@ -33,6 +33,7 @@
     "typecheck:pi": "node scripts/check-pi-compat.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "vitest run tests/e2e",
     "preversion": "npm run check && npm run typecheck:pi",
     "prepack": "npm run typecheck",
     "check:architecture": "node scripts/check-architecture.mjs",
@@ -60,15 +61,11 @@
     "prompts": []
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@mariozechner/pi-coding-agent": "*",
+    "@earendil-works/pi-coding-agent": ">=1.2.0",
     "@sinclair/typebox": "*"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-coding-agent": {
-      "optional": true
-    },
-    "@mariozechner/pi-coding-agent": {
       "optional": true
     },
     "@sinclair/typebox": {
@@ -76,7 +73,7 @@
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^1.4.0",
+    "@earendil-works/pi-coding-agent": "^1.6.0",
     "@sinclair/typebox": "^0.34.49",
     "@types/node": "^22.10.5",
     "@types/qrcode-terminal": "^0.12.2",
@@ -85,10 +82,5 @@
   },
   "dependencies": {
     "qrcode-terminal": "^0.12.0"
-  },
-  "overrides": {
-    "@earendil-works/pi-coding-agent": {
-      "undici": "8.12.3"
-    }
   }
 }

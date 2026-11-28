@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+## [1.0.0] - 2026-11-28
+
+### English
+
+- **Breaking:** Raise the minimum supported Pi host baseline to `@earendil-works/pi-coding-agent >= 1.2.0` and drop legacy `@mariozechner/pi-coding-agent` and pre-1.2 compatibility branches (settlement/boundary events and remote `/new` are now always native).
+- Add opt-in WeChat completion summaries through `/wechat config summary on|off`. Summaries wait for Pi’s final settlement and use the existing reply outbox (#53).
+- Consolidate extension orchestration into `BridgeRuntime` (`src/extension/runtime.ts`), centralize configuration defaults in `resolveConfig()`, deduplicate remote session stats, and remove dead code and redundant internal checks.
+- Resolve the state directory dynamically from `HOME`/`USERPROFILE` (with path-scoped config caching) and add a zero-mock near-real-device E2E suite (`npm run test:e2e`) covering 12 full-stack HTTP/SSE/AES scenarios plus 2 real multi-process OS handoff and outbox-takeover tests.
+- Slim documentation: remove dated review/acceptance records, trim defensive disclaimers, and maintain internal developer docs (`architecture.md`, `maintenance.md`, `CONTRIBUTING.md`) in Simplified Chinese only while keeping user guides bilingual.
+
+### 中文
+
+- **破坏性变更**：将支持的最低 Pi 宿主基线上调至 `@earendil-works/pi-coding-agent >= 1.2.0`，移除旧 `@mariozechner/pi-coding-agent` 兼容路径与 1.2 之前的旧宿主回退分支（收尾事件与远程 `/new` 均为原生能力）。
+- 新增默认关闭的微信完成摘要，可用 `/wechat config summary on|off` 切换。Pi 本轮收尾后发送一条摘要，被拒收时沿用待发箱补发（#53）。
+- 将扩展编排层收敛重构至 `BridgeRuntime`（`src/extension/runtime.ts`），集中 `resolveConfig()` 配置默认值与远程会话统计逻辑，清理死代码与内部冗余防御。
+- 改为按 `HOME`/`USERPROFILE` 动态解析状态目录（并按路径隔离配置缓存），新增零 mock 近真机自动化 E2E 套件（`npm run test:e2e`），覆盖 12 个全链路 HTTP/SSE/AES 场景及 2 个真实双 OS 进程交接与 outbox 接管场景。
+- 精简文档体系：删除过时体检与过程验收记录、去掉防御性免责话术，内部开发文档（`architecture.md`、`maintenance.md`、`CONTRIBUTING.md`）改为中文单语，用户指南继续保持中英双语。
+
 ## [0.6.7] - 2026-11-19
 
 ### English
